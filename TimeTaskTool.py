@@ -131,23 +131,23 @@ class TaskManager(object):
             return
         
         # 添加执行锁检查，防止重复执行
-        current_minute = arrow.now().format('YYYY-MM-DD HH:mm')
+        current_time = arrow.now().format('YYYY-MM-DD HH:mm:ss')
         for task in currentExpendArray[:]:  # 使用切片创建副本以避免修改迭代中的列表
-            task_lock_key = f"{task.taskId}_{current_minute}"
+            task_lock_key = f"{task.taskId}_{current_time}"
             if task_lock_key in self._task_locks:
-                print(f"任务 {task.taskId} 在当前分钟 {current_minute} 已执行，跳过")
+                print(f"任务 {task.taskId} 在当前时间 {current_time} 已执行，跳过")
                 currentExpendArray.remove(task)
                 continue
                 
         # 记录本次待执行的任务锁
         for task in currentExpendArray:
-            task_lock_key = f"{task.taskId}_{current_minute}"
+            task_lock_key = f"{task.taskId}_{current_time}"
             self._task_locks.add(task_lock_key)
             
-        # 清理旧的任务锁（保留最近30分钟的记录）
-        current_time = arrow.now()
+        # 清理旧的任务锁（保留最近5分钟的记录）
+        current = arrow.now()
         self._task_locks = {lock for lock in self._task_locks 
-                          if current_time.shift(minutes=-30).format('YYYY-MM-DD HH:mm') 
+                          if current.shift(minutes=-5).format('YYYY-MM-DD HH:mm:ss') 
                           <= lock.split('_')[1]}
         
         #消费当前task
@@ -406,7 +406,7 @@ class TaskManager(object):
                 model.is_today_consumed = False
                 ExcelTool().write_columnValue_withTaskId_toExcel(model.taskId, 14, "0")
             # 从任务锁中移除，允许重试
-            current_minute = arrow.now().format('YYYY-MM-DD HH:mm')
+            current_minute = arrow.now().format('YYYY-MM-DD HH:mm:ss')
             task_lock_key = f"{model.taskId}_{current_minute}"
             if hasattr(self, '_task_locks') and task_lock_key in self._task_locks:
                 self._task_locks.remove(task_lock_key)
@@ -430,13 +430,13 @@ class TaskManager(object):
     def is_targetTime(self, timeStr):
         tempTimeStr = timeStr
         #对比精准到分（忽略秒）
-        current_time = arrow.now().format('HH:mm')
+        current_time = arrow.now().format('HH:mm:ss')
         
         #如果是分钟
         if tempTimeStr.count(":") == 1:
            tempTimeStr = tempTimeStr + ":00"
         
         #转为分钟时间
-        task_time = arrow.get(tempTimeStr, "HH:mm:ss").format("HH:mm")
+        task_time = arrow.get(tempTimeStr, "HH:mm:ss").format("HH:mm:ss")
         tempValue = current_time == task_time
         return tempValue 
