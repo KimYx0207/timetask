@@ -24,6 +24,9 @@ class TaskManager(object):
         #保存定时任务回调
         self.timeTaskFunc = timeTaskFunc
         
+        # 初始化任务锁集合
+        self._task_locks = set()
+        
         # 创建子线程
         t = threading.Thread(target=self.pingTimeTask_in_sub_thread)
         t.setDaemon(True) 
@@ -50,6 +53,7 @@ class TaskManager(object):
         load_config()
         self.conf = conf()
         self.debug = self.conf.get("debug", False)
+        print(f"Debug mode is {'on' if self.debug else 'off'}")  
         #迁移任务的时间
         self.move_historyTask_time = self.conf.get("move_historyTask_time", "04:00:00")
         #默认每秒检测一次
@@ -126,9 +130,30 @@ class TaskManager(object):
                 logging.info("[timetask][定时检测]：当前时刻 - 无定时任务...")
             return
         
+        # 添加执行锁检查，防止重复执行
+        current_minute = arrow.now().format('YYYY-MM-DD HH:mm')
+        for task in currentExpendArray[:]:  # 使用切片创建副本以避免修改迭代中的列表
+            task_lock_key = f"{task.taskId}_{current_minute}"
+            if task_lock_key in self._task_locks:
+                print(f"任务 {task.taskId} 在当前分钟 {current_minute} 已执行，跳过")
+                currentExpendArray.remove(task)
+                continue
+                
+        # 记录本次待执行的任务锁
+        for task in currentExpendArray:
+            task_lock_key = f"{task.taskId}_{current_minute}"
+            self._task_locks.add(task_lock_key)
+            
+        # 清理旧的任务锁（保留最近30分钟的记录）
+        current_time = arrow.now()
+        self._task_locks = {lock for lock in self._task_locks 
+                          if current_time.shift(minutes=-30).format('YYYY-MM-DD HH:mm') 
+                          <= lock.split('_')[1]}
+        
         #消费当前task
-        print(f"[timetask][定时检测]：当前时刻 - 存在定时任务, 执行消费 当前时刻任务")
-        self.runTaskArray(currentExpendArray)
+        if len(currentExpendArray) > 0:
+            print(f"[timetask][定时检测]：当前时刻 - 存在定时任务, 执行消费 当前时刻任务")
+            self.runTaskArray(currentExpendArray)
         
         
     #检测是否重新登录了    
@@ -304,7 +329,10 @@ class TaskManager(object):
                 is_today = model.is_today()
                 #是否未来day
                 is_featureDay = model.is_featureDay()
-            
+                
+                #获取当前时间
+                current_time = arrow.now()
+                
                 #是否历史
                 isHistory = True
                 #由于一个model既可以是当前的任务，又可能是以后得任务，所以这里对一个model同时判定现在和未来的判定
@@ -316,7 +344,6 @@ class TaskManager(object):
                             model.cron_today_times.remove(nowTime)
                             currentExpendArray.append(model)
                             isHistory = False
-                        
                     #今天未被消费
                     elif not model.is_today_consumed:
                         currentExpendArray.append(model)
@@ -340,31 +367,49 @@ class TaskManager(object):
     #执行task
     def runTaskArray(self, modelArray):
         try:
-            #执行任务列表
-            for _, model in enumerate(modelArray):
-                self.runTaskItem(model)
+            # Add deduplication check
+            executed_tasks = set()
+            for model in modelArray:
+                if model.taskId not in executed_tasks:
+                    executed_tasks.add(model.taskId)
+                    self.runTaskItem(model)
+                else:
+                    print(f"Skipping duplicate task execution for ID: {model.taskId}")
         except Exception as e:
             print(f"执行定时任务，发生了错误：{e}")
             
                 
     #执行task
     def runTaskItem(self, model: TimeTaskModel):
-        #非cron，置为已消费
-        if not model.isCron_time():
-            model.is_today_consumed = True
-            #置为消费
-            ExcelTool().write_columnValue_withTaskId_toExcel(model.taskId, 14, "1")
-        
-        print(f"😄执行定时任务:【{model.taskId}】，任务详情：{model.circleTimeStr} {model.timeStr} {model.eventStr}")
-        #回调定时任务执行
-        self.timeTaskFunc(model)
-        
-        #任务消费
-        if not model.is_featureDay():
-            obj = ExcelTool()
-            obj.write_columnValue_withTaskId_toExcel(model.taskId , 2, "0")
-            #刷新数据
-            self.refreshDataFromExcel()
+        try:
+            #非cron，置为已消费
+            if not model.isCron_time():
+                model.is_today_consumed = True
+                #置为消费
+                ExcelTool().write_columnValue_withTaskId_toExcel(model.taskId, 14, "1")
+            
+            print(f"😄执行定时任务:【{model.taskId}】，任务详情：{model.circleTimeStr} {model.timeStr} {model.eventStr}")
+            #回调定时任务执行
+            self.timeTaskFunc(model)
+            
+            #任务消费
+            if not model.is_featureDay():
+                obj = ExcelTool()
+                obj.write_columnValue_withTaskId_toExcel(model.taskId , 2, "0")
+                #刷新数据
+                self.refreshDataFromExcel()
+                
+        except Exception as e:
+            print(f"执行任务 {model.taskId} 时发生错误: {str(e)}")
+            # 发生错误时，重置任务状态
+            if not model.isCron_time():
+                model.is_today_consumed = False
+                ExcelTool().write_columnValue_withTaskId_toExcel(model.taskId, 14, "0")
+            # 从任务锁中移除，允许重试
+            current_minute = arrow.now().format('YYYY-MM-DD HH:mm')
+            task_lock_key = f"{model.taskId}_{current_minute}"
+            if hasattr(self, '_task_locks') and task_lock_key in self._task_locks:
+                self._task_locks.remove(task_lock_key)
         
     #添加任务
     def addTask(self, taskModel: TimeTaskModel):

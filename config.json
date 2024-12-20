@@ -5,15 +5,15 @@
   "move_historyTask_time": "04:00:00",
   "is_open_route_everyReply": true,
   "is_open_extension_function": true,
-  "is_need_title_whenNormalReply": true,
-  "is_need_currentTime_whenNormalReply": true,
-  "is_need_identifier_whenNormalReply": true,
+  "is_need_title_whenNormalReply": false,
+  "is_need_currentTime_whenNormalReply": false,
+  "is_need_identifier_whenNormalReply": false,
   "is_need_detailDeccription_whenNormalReply": true,
   "extension_function":
   [
     {
       "key_word": "早报",
-      "func_command_prefix":"$tool "
+      "func_command_prefix":"早报"
     },
     {
       "key_word": "点歌",
@@ -26,6 +26,18 @@
     {
       "key_word": "GPT",
       "func_command_prefix": "GPT"
+    },
+    {
+      "key_word": "举牌",
+      "func_command_prefix": "举牌"
+    },
+    {
+      "key_word": "$总结",
+      "func_command_prefix": "$总结"
+    },
+    {
+      "key_word": "AI快讯",
+      "func_command_prefix": "AI快讯"
     }
   ]
 }

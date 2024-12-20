@@ -568,14 +568,15 @@ class TimeTaskModel:
     #是否现在时间(精确到分钟)    
     def is_nowTime(self):
             
-        # 获取当前时间（忽略秒数）
-        current_time = arrow.now().format('HH:mm')
-             
+        # 获取当前时间（精确到分钟）
+        current_time = arrow.now()
+         
         #cron   
         if self.isCron_time():
             #是否在今天的待执行列表中
-            tempValue = current_time in self.cron_today_times
-            return tempValue, current_time
+            current_time_str = current_time.format('HH:mm')
+            tempValue = current_time_str in self.cron_today_times
+            return tempValue, current_time_str
         
         else: 
             #时间
@@ -584,9 +585,16 @@ class TimeTaskModel:
             if tempTimeStr.count(":") == 1:
                 tempTimeStr = tempTimeStr + ":00"
             
-            task_time = arrow.get(tempTimeStr, "HH:mm:ss").format("HH:mm")
-            tempValue = current_time == task_time
-            return tempValue, current_time
+            # 解析任务时间
+            task_time = arrow.get(tempTimeStr, "HH:mm:ss")
+            
+            # 计算时间差（分钟）
+            time_diff = abs((current_time.hour * 60 + current_time.minute) - 
+                          (task_time.hour * 60 + task_time.minute))
+            
+            # 允许1分钟的误差范围
+            tempValue = time_diff <= 1
+            return tempValue, current_time.format('HH:mm')
     
     #是否未来时间(精确到分钟) 
     def is_featureTime(self):
