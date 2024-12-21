@@ -177,22 +177,35 @@ class ExcelTool(object):
         # 文件路径
         workbook_file_path = self.get_file_path(file_name)
         
-        # 如果文件存在,就执行
-        if os.path.exists(workbook_file_path):
-            wb = load_workbook(workbook_file_path)
-            ws = wb[sheet_name]
-            ws.append(item)
-            wb.save(workbook_file_path)
-            
-            # 列表
-            data = list(ws.values)
-            #print(data)
-            return data
-        else:
-            print("timeTask文件不存在, 添加数据失败")
-            self.create_excel()
-            return []
-        
+        try:
+            # 如果文件存在,就执行
+            if os.path.exists(workbook_file_path):
+                wb = load_workbook(workbook_file_path)
+                ws = wb[sheet_name]
+                ws.append(item)
+                wb.save(workbook_file_path)
+                
+                # 列表
+                data = list(ws.values)
+                return data
+            else:
+                print("timeTask文件不存在，创建新文件")
+                self.create_excel()
+                return self.addItemToExcel(item, file_name, sheet_name)
+        except Exception as e:
+            print(f"Excel文件可能损坏，错误信息：{str(e)}")
+            print("尝试删除并重新创建Excel文件")
+            try:
+                # 尝试删除损坏的文件
+                if os.path.exists(workbook_file_path):
+                    os.remove(workbook_file_path)
+                # 创建新文件
+                self.create_excel()
+                # 重新添加数据
+                return self.addItemToExcel(item, file_name, sheet_name)
+            except Exception as e2:
+                print(f"修复失败，错误信息：{str(e2)}")
+                raise e2
         
     # 写入数据
     def write_columnValue_withTaskId_toExcel(self, taskId, column: int, columnValue: str,  file_name=__file_name, sheet_name=__sheet_name):
