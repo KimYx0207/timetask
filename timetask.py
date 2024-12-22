@@ -359,23 +359,7 @@ class TimeTask(Plugin):
         if model.isPerson_makeGrop():
             eventStr, groupTitle = model.get_Persion_makeGropTitle_eventStr()
             channel_name = RobotConfig.conf().get("channel_type", "wx")
-            # 每次执行时重新获取群ID
-            groupId = model.get_gropID_withGroupTitle(groupTitle, channel_name)
-            if not groupId:
-                # 如果找不到群ID，尝试重新获取一次群列表
-                if channel_name == "wx":
-                    try:
-                        itchat.get_chatrooms(update=True)
-                        groupId = model.get_gropID_withGroupTitle(groupTitle, channel_name)
-                    except Exception as e:
-                        logging.error(f"更新群列表失败：{e}")
-                elif channel_name == "ntchat":
-                    try:
-                        wechatnt.get_rooms(refresh=True)
-                        groupId = model.get_gropID_withGroupTitle(groupTitle, channel_name)
-                    except Exception as e:
-                        logging.error(f"更新群列表失败：{e}")
-            
+            groupId = model.get_gropID_withGroupTitle(groupTitle , channel_name)
             other_user_id = groupId
             isGroup = True
             if not groupId:

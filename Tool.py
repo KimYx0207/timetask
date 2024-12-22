@@ -176,55 +176,23 @@ class ExcelTool(object):
     def addItemToExcel(self, item, file_name=__file_name, sheet_name=__sheet_name):
         # 文件路径
         workbook_file_path = self.get_file_path(file_name)
-        backup_file_path = workbook_file_path + '.bak'
         
-        try:
-            # 如果文件存在,就执行
-            if os.path.exists(workbook_file_path):
-                # 尝试读取文件前先创建备份
-                try:
-                    wb = load_workbook(workbook_file_path)
-                    wb.save(backup_file_path)
-                except:
-                    print("创建备份文件失败，继续执行")
-                
-                # 读取并操作主文件
-                wb = load_workbook(workbook_file_path)
-                ws = wb[sheet_name]
-                ws.append(item)
-                wb.save(workbook_file_path)
-                
-                # 操作成功后删除备份
-                if os.path.exists(backup_file_path):
-                    os.remove(backup_file_path)
-                
-                # 列表
-                data = list(ws.values)
-                return data
-            else:
-                print("timeTask文件不存在，创建新文件")
-                self.create_excel()
-                return self.addItemToExcel(item, file_name, sheet_name)
-        except Exception as e:
-            print(f"Excel文件可能损坏，错误信息：{str(e)}")
-            print("尝试恢复或重新创建Excel文件")
-            try:
-                # 1. 如果有备份文件，尝试恢复
-                if os.path.exists(backup_file_path):
-                    print("发现备份文件，尝试恢复")
-                    if os.path.exists(workbook_file_path):
-                        os.remove(workbook_file_path)
-                    os.rename(backup_file_path, workbook_file_path)
-                    return self.addItemToExcel(item, file_name, sheet_name)
-                
-                # 2. 如果没有备份文件，创建新文件
-                if os.path.exists(workbook_file_path):
-                    os.remove(workbook_file_path)
-                self.create_excel()
-                return self.addItemToExcel(item, file_name, sheet_name)
-            except Exception as e2:
-                print(f"修复失败，错误信息：{str(e2)}")
-                raise e2
+        # 如果文件存在,就执行
+        if os.path.exists(workbook_file_path):
+            wb = load_workbook(workbook_file_path)
+            ws = wb[sheet_name]
+            ws.append(item)
+            wb.save(workbook_file_path)
+            
+            # 列表
+            data = list(ws.values)
+            #print(data)
+            return data
+        else:
+            print("timeTask文件不存在, 添加数据失败")
+            self.create_excel()
+            return []
+        
         
     # 写入数据
     def write_columnValue_withTaskId_toExcel(self, taskId, column: int, columnValue: str,  file_name=__file_name, sheet_name=__sheet_name):
@@ -600,15 +568,14 @@ class TimeTaskModel:
     #是否现在时间(精确到分钟)    
     def is_nowTime(self):
             
-        # 获取当前时间（精确到分钟）
-        current_time = arrow.now()
-         
+        # 获取当前时间（忽略秒数）
+        current_time = arrow.now().format('HH:mm')
+             
         #cron   
         if self.isCron_time():
             #是否在今天的待执行列表中
-            current_time_str = current_time.format('HH:mm')
-            tempValue = current_time_str in self.cron_today_times
-            return tempValue, current_time_str
+            tempValue = current_time in self.cron_today_times
+            return tempValue, current_time
         
         else: 
             #时间
@@ -617,16 +584,9 @@ class TimeTaskModel:
             if tempTimeStr.count(":") == 1:
                 tempTimeStr = tempTimeStr + ":00"
             
-            # 解析任务时间
-            task_time = arrow.get(tempTimeStr, "HH:mm:ss")
-            
-            # 计算时间差（分钟）
-            time_diff = abs((current_time.hour * 60 + current_time.minute) - 
-                          (task_time.hour * 60 + task_time.minute))
-            
-            # 允许1分钟的误差范围
-            tempValue = time_diff <= 1
-            return tempValue, current_time.format('HH:mm')
+            task_time = arrow.get(tempTimeStr, "HH:mm:ss").format("HH:mm")
+            tempValue = current_time == task_time
+            return tempValue, current_time
     
     #是否未来时间(精确到分钟) 
     def is_featureTime(self):
@@ -777,40 +737,84 @@ class TimeTaskModel:
     
     #获取时间
     def get_time(self, timeStr):
-        try:
-            # 如果是空，则默认为当前时间
-            if len(timeStr) <= 0:
-                return arrow.now().format('HH:mm:ss')
+        pattern1 = r'^\d{2}:\d{2}:\d{2}$'
+        pattern2 = r'^\d{2}:\d{2}$'
+        # 是否符合 HH:mm:ss 格式
+        time_good1 = re.match(pattern1, timeStr)
+        # 是否符合 HH:mm 格式
+        time_good2 = re.match(pattern2, timeStr)
+        
+        g_time = ""
+        if time_good1 :
+            g_time = timeStr
             
-            # 如果包含冒号，说明是时间格式
-            if ":" in timeStr:
-                # 如果只有一个冒号（时:分），补充秒数
-                if timeStr.count(":") == 1:
-                    timeStr = timeStr + ":00"
-                # 验证时间格式
-                try:
-                    arrow.get(timeStr, "HH:mm:ss")
-                    return timeStr
-                except:
-                    print(f"时间格式错误：{timeStr}")
-                    return arrow.now().format('HH:mm:ss')
+        elif time_good2:
+            g_time = timeStr + ":00"
+        
+        elif '点' in timeStr or '分' in timeStr or '秒' in timeStr :
+            content = timeStr.replace("点", ":")
+            content = content.replace("分", ":")
+            content = content.replace("秒", "")
+            wordsArray = content.split(":")
+            hour = "0"
+            minute = "0"
+            second = "0"
+            digits = {'零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10, 
+                '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15, '十六': 16, '十七': 17, '十八': 18, '十九': 19, '二十': 20, 
+                '二十一': 21, '二十二': 22, '二十三': 23, '二十四': 24, '二十五': 25, '二十六': 26, '二十七': 27, '二十八': 28, '二十九': 29, '三十': 30, 
+                '三十一': 31, '三十二': 32, '三十三': 33, '三十四': 34, '三十五': 35, '三十六': 36, '三十七': 37, '三十八': 38, '三十九': 39, '四十': 40, 
+                '四十一': 41, '四十二': 42, '四十三': 43, '四十四': 44, '四十五': 45, '四十六': 46, '四十七': 47, '四十八': 48, '四十九': 49, '五十': 50, 
+                '五十一': 51, '五十二': 52, '五十三': 53, '五十四': 54, '五十五': 55, '五十六': 56, '五十七': 57, '五十八': 58, '五十九': 59, '六十': 60, '半': 30}
+            littleNumArray = ["01", "02", "03", "04", "05", "06", "07", "08", "09"]
+            for index, item in enumerate(wordsArray):
+                if index == 0 and len(item) > 0:
+                    #中文 且 在一 至 六十之间
+                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
+                        hour = str(digits[item])
+                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
+                         hour = str(item)
+                    else:
+                        return ""       
+                            
+                elif index == 1 and len(item) > 0:
+                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
+                        minute = str(digits[item])
+                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
+                        minute = str(item)
+                    else:
+                        return ""  
+                        
+                elif index == 2 and len(item) > 0:
+                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
+                        second = str(digits[item])
+                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
+                        second = str(item)  
+                    else:
+                        return ""    
             
-            # 特殊关键词处理
-            keywords = {
-                "现在": lambda: arrow.now().format('HH:mm:ss'),
-                "明天": lambda: arrow.now().shift(days=1).format('HH:mm:ss'),
-                "后天": lambda: arrow.now().shift(days=2).format('HH:mm:ss'),
-                "下周": lambda: arrow.now().shift(weeks=1).format('HH:mm:ss')
-            }
+            #格式处理       
+            if int(hour) < 10:
+                  hour = "0" + str(int(hour))
+                      
+            if int(minute) < 10:
+                  minute = "0" + str(int(minute))
+                  
+            if int(second) < 10:
+                  second = "0" + str(int(second))  
             
-            if timeStr in keywords:
-                return keywords[timeStr]()
+            #拼接     
+            g_time = hour + ":" + minute + ":" + second                                       
             
-            return arrow.now().format('HH:mm:ss')
+        else:
+            print('暂不支持的格式')
+            return ""
             
-        except Exception as e:
-            print(f"时间转换错误：{str(e)}")
-            return arrow.now().format('HH:mm:ss')
+        #检测转换的时间是否合法    
+        time_good1 = re.match(pattern1, g_time)
+        if time_good1:
+              return g_time
+                 
+        return ""
     
     #是否 cron表达式
     def isCron_time(self):
@@ -854,25 +858,75 @@ class TimeTaskModel:
     
     #通过 群Title 获取群ID
     def get_gropID_withGroupTitle(self, groupTitle, channel_name):
+        if len(groupTitle) <= 0:
+              return ""
+        #itchat
         if channel_name == "wx":
+            tempRoomId = ""
+            #群聊处理       
             try:
-                # 获取群列表
+                #群聊  
                 chatrooms = itchat.get_chatrooms()
-                if chatrooms is None or len(chatrooms) == 0:
-                    print(f"[{channel_name}通道] 通过 群Title 获取群ID失败，群列表为空")
-                    return ""
-                
-                # 遍历群列表
-                for room in chatrooms:
-                    if room['NickName'] == groupTitle:
-                        return room['UserName']
-                
-                print(f"[{channel_name}通道] 通过 群Title 获取群ID失败，未找到群：{groupTitle}")
-                return ""
+                #获取群聊
+                for chatroom in chatrooms:
+                    #id
+                    userName = chatroom["UserName"]
+                    NickName = chatroom["NickName"]
+                    if NickName == groupTitle:
+                        tempRoomId = userName
+                        break
+                    
+                return tempRoomId
+            except Exception as e:
+                print(f"[{channel_name}通道] 通过 群Title 获取群ID发生错误，错误信息为：{e}")
+                return tempRoomId
+            
+            
+        elif channel_name == "ntchat":
+            tempRoomId = ""
+            try:
+                #数据结构为字典数组
+                rooms = wechatnt.get_rooms()
+                if len(rooms) > 0:
+                    #遍历
+                    for item in rooms:
+                        roomId = item.get("wxid")
+                        nickname = item.get("nickname")
+                        if nickname == groupTitle:
+                            tempRoomId = roomId
+                            break
+                        
+                return tempRoomId
+                        
+            except Exception as e:
+                print(f"[{channel_name}通道] 通过 群Title 获取群ID发生错误，错误信息为：{e}")
+                return tempRoomId
+
+        elif channel_name == "wework":
+            tempRoomId = ""
+            try:
+                # 数据结构为字典数组
+                rooms = wework.get_rooms().get("room_list")
+                if len(rooms) > 0:
+                    # 遍历
+                    for item in rooms:
+                        roomId = item.get("conversation_id")
+                        nickname = item.get("nickname")
+                        if nickname == groupTitle:
+                            tempRoomId = roomId
+                            break
+
+                return tempRoomId
 
             except Exception as e:
                 print(f"[{channel_name}通道] 通过 群Title 获取群ID发生错误，错误信息为：{e}")
-                return ""
+                return tempRoomId
         else:
             print(f"[{channel_name}通道] 通过 群Title 获取群ID 不支持的channel，channel为：{channel_name}")
             return ""
+                    
+                
+            
+             
+        
+        
