@@ -176,14 +176,27 @@ class ExcelTool(object):
     def addItemToExcel(self, item, file_name=__file_name, sheet_name=__sheet_name):
         # 文件路径
         workbook_file_path = self.get_file_path(file_name)
+        backup_file_path = workbook_file_path + '.bak'
         
         try:
             # 如果文件存在,就执行
             if os.path.exists(workbook_file_path):
+                # 尝试读取文件前先创建备份
+                try:
+                    wb = load_workbook(workbook_file_path)
+                    wb.save(backup_file_path)
+                except:
+                    print("创建备份文件失败，继续执行")
+                
+                # 读取并操作主文件
                 wb = load_workbook(workbook_file_path)
                 ws = wb[sheet_name]
                 ws.append(item)
                 wb.save(workbook_file_path)
+                
+                # 操作成功后删除备份
+                if os.path.exists(backup_file_path):
+                    os.remove(backup_file_path)
                 
                 # 列表
                 data = list(ws.values)
@@ -194,14 +207,20 @@ class ExcelTool(object):
                 return self.addItemToExcel(item, file_name, sheet_name)
         except Exception as e:
             print(f"Excel文件可能损坏，错误信息：{str(e)}")
-            print("尝试删除并重新创建Excel文件")
+            print("尝试恢复或重新创建Excel文件")
             try:
-                # 尝试删除损坏的文件
+                # 1. 如果有备份文件，尝试恢复
+                if os.path.exists(backup_file_path):
+                    print("发现备份文件，尝试恢复")
+                    if os.path.exists(workbook_file_path):
+                        os.remove(workbook_file_path)
+                    os.rename(backup_file_path, workbook_file_path)
+                    return self.addItemToExcel(item, file_name, sheet_name)
+                
+                # 2. 如果没有备份文件，创建新文件
                 if os.path.exists(workbook_file_path):
                     os.remove(workbook_file_path)
-                # 创建新文件
                 self.create_excel()
-                # 重新添加数据
                 return self.addItemToExcel(item, file_name, sheet_name)
             except Exception as e2:
                 print(f"修复失败，错误信息：{str(e2)}")
@@ -879,75 +898,25 @@ class TimeTaskModel:
     
     #通过 群Title 获取群ID
     def get_gropID_withGroupTitle(self, groupTitle, channel_name):
-        if len(groupTitle) <= 0:
-              return ""
-        #itchat
         if channel_name == "wx":
-            tempRoomId = ""
-            #群聊处理       
             try:
-                #群聊  
-                chatrooms = itchat.get_chatrooms()
-                #获取群聊
-                for chatroom in chatrooms:
-                    #id
-                    userName = chatroom["UserName"]
-                    NickName = chatroom["NickName"]
-                    if NickName == groupTitle:
-                        tempRoomId = userName
-                        break
-                    
-                return tempRoomId
-            except Exception as e:
-                print(f"[{channel_name}通道] 通过 群Title 获取群ID发生错误，错误信息为：{e}")
-                return tempRoomId
-            
-            
-        elif channel_name == "ntchat":
-            tempRoomId = ""
-            try:
-                #数据结构为字典数组
-                rooms = wechatnt.get_rooms()
-                if len(rooms) > 0:
-                    #遍历
-                    for item in rooms:
-                        roomId = item.get("wxid")
-                        nickname = item.get("nickname")
-                        if nickname == groupTitle:
-                            tempRoomId = roomId
-                            break
-                        
-                return tempRoomId
-                        
-            except Exception as e:
-                print(f"[{channel_name}通道] 通过 群Title 获取群ID发生错误，错误信息为：{e}")
-                return tempRoomId
-
-        elif channel_name == "wework":
-            tempRoomId = ""
-            try:
-                # 数据结构为字典数组
-                rooms = wework.get_rooms().get("room_list")
-                if len(rooms) > 0:
-                    # 遍历
-                    for item in rooms:
-                        roomId = item.get("conversation_id")
-                        nickname = item.get("nickname")
-                        if nickname == groupTitle:
-                            tempRoomId = roomId
-                            break
-
-                return tempRoomId
+                # 获取群列表
+                chatrooms = itchat.get_chatrooms(update=True)
+                if chatrooms is None or len(chatrooms) == 0:
+                    print(f"[{channel_name}通道] 通过 群Title 获取群ID失败，群列表为空")
+                    return ""
+                
+                # 遍历群列表
+                for room in chatrooms:
+                    if room['NickName'] == groupTitle:
+                        return room['UserName']
+                
+                print(f"[{channel_name}通道] 通过 群Title 获取群ID失败，未找到群：{groupTitle}")
+                return ""
 
             except Exception as e:
                 print(f"[{channel_name}通道] 通过 群Title 获取群ID发生错误，错误信息为：{e}")
-                return tempRoomId
+                return ""
         else:
             print(f"[{channel_name}通道] 通过 群Title 获取群ID 不支持的channel，channel为：{channel_name}")
             return ""
-                    
-                
-            
-             
-        
-        
