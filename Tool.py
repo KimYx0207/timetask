@@ -777,84 +777,40 @@ class TimeTaskModel:
     
     #获取时间
     def get_time(self, timeStr):
-        pattern1 = r'^\d{2}:\d{2}:\d{2}$'
-        pattern2 = r'^\d{2}:\d{2}$'
-        # 是否符合 HH:mm:ss 格式
-        time_good1 = re.match(pattern1, timeStr)
-        # 是否符合 HH:mm 格式
-        time_good2 = re.match(pattern2, timeStr)
-        
-        g_time = ""
-        if time_good1 :
-            g_time = timeStr
+        try:
+            # 如果是空，则默认为当前时间
+            if len(timeStr) <= 0:
+                return arrow.now().format('HH:mm:ss')
             
-        elif time_good2:
-            g_time = timeStr + ":00"
-        
-        elif '点' in timeStr or '分' in timeStr or '秒' in timeStr :
-            content = timeStr.replace("点", ":")
-            content = content.replace("分", ":")
-            content = content.replace("秒", "")
-            wordsArray = content.split(":")
-            hour = "0"
-            minute = "0"
-            second = "0"
-            digits = {'零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10, 
-                '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15, '十六': 16, '十七': 17, '十八': 18, '十九': 19, '二十': 20, 
-                '二十一': 21, '二十二': 22, '二十三': 23, '二十四': 24, '二十五': 25, '二十六': 26, '二十七': 27, '二十八': 28, '二十九': 29, '三十': 30, 
-                '三十一': 31, '三十二': 32, '三十三': 33, '三十四': 34, '三十五': 35, '三十六': 36, '三十七': 37, '三十八': 38, '三十九': 39, '四十': 40, 
-                '四十一': 41, '四十二': 42, '四十三': 43, '四十四': 44, '四十五': 45, '四十六': 46, '四十七': 47, '四十八': 48, '四十九': 49, '五十': 50, 
-                '五十一': 51, '五十二': 52, '五十三': 53, '五十四': 54, '五十五': 55, '五十六': 56, '五十七': 57, '五十八': 58, '五十九': 59, '六十': 60, '半': 30}
-            littleNumArray = ["01", "02", "03", "04", "05", "06", "07", "08", "09"]
-            for index, item in enumerate(wordsArray):
-                if index == 0 and len(item) > 0:
-                    #中文 且 在一 至 六十之间
-                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
-                        hour = str(digits[item])
-                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
-                         hour = str(item)
-                    else:
-                        return ""       
-                            
-                elif index == 1 and len(item) > 0:
-                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
-                        minute = str(digits[item])
-                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
-                        minute = str(item)
-                    else:
-                        return ""  
-                        
-                elif index == 2 and len(item) > 0:
-                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
-                        second = str(digits[item])
-                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
-                        second = str(item)  
-                    else:
-                        return ""    
+            # 如果包含冒号，说明是时间格式
+            if ":" in timeStr:
+                # 如果只有一个冒号（时:分），补充秒数
+                if timeStr.count(":") == 1:
+                    timeStr = timeStr + ":00"
+                # 验证时间格式
+                try:
+                    arrow.get(timeStr, "HH:mm:ss")
+                    return timeStr
+                except:
+                    print(f"时间格式错误：{timeStr}")
+                    return arrow.now().format('HH:mm:ss')
             
-            #格式处理       
-            if int(hour) < 10:
-                  hour = "0" + str(int(hour))
-                      
-            if int(minute) < 10:
-                  minute = "0" + str(int(minute))
-                  
-            if int(second) < 10:
-                  second = "0" + str(int(second))  
+            # 特殊关键词处理
+            keywords = {
+                "现在": lambda: arrow.now().format('HH:mm:ss'),
+                "明天": lambda: arrow.now().shift(days=1).format('HH:mm:ss'),
+                "后天": lambda: arrow.now().shift(days=2).format('HH:mm:ss'),
+                "下周": lambda: arrow.now().shift(weeks=1).format('HH:mm:ss')
+            }
             
-            #拼接     
-            g_time = hour + ":" + minute + ":" + second                                       
+            if timeStr in keywords:
+                return keywords[timeStr]()
             
-        else:
-            print('暂不支持的格式')
-            return ""
+            return arrow.now().format('HH:mm:ss')
             
-        #检测转换的时间是否合法    
-        time_good1 = re.match(pattern1, g_time)
-        if time_good1:
-              return g_time
-                 
-        return ""
+        except Exception as e:
+            print(f"时间转换错误：{str(e)}")
+            return arrow.now().format('HH:mm:ss')
     
     #是否 cron表达式
     def isCron_time(self):
@@ -901,7 +857,7 @@ class TimeTaskModel:
         if channel_name == "wx":
             try:
                 # 获取群列表
-                chatrooms = itchat.get_chatrooms(update=True)
+                chatrooms = itchat.get_chatrooms()
                 if chatrooms is None or len(chatrooms) == 0:
                     print(f"[{channel_name}通道] 通过 群Title 获取群ID失败，群列表为空")
                     return ""
