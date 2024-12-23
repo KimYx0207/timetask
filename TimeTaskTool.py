@@ -29,14 +29,6 @@ class TaskManager(object):
         # 初始化任务锁集合
         self._task_locks = set()
         
-        # 初始化任务状态
-        self.initTaskStates()
-        
-        # 创建子线程
-        t = threading.Thread(target=self.pingTimeTask_in_sub_thread)
-        t.setDaemon(True) 
-        t.start()
-        
         # 初始化任务列表
         self.timeTasks = []  # 任务列表
         self.historyTasks = []  # 历史任务列表
@@ -44,9 +36,11 @@ class TaskManager(object):
         self.moveHistoryTask_identifier = ""  # 迁移历史任务标识符
         
         # 加载配置
-        self.config = load_config()
-        self.debug = self.config.get('debug', False)
-        self.move_historyTask_time = self.config.get('move_historyTask_time', '04:00:00')
+        load_config()  # 确保先加载配置
+        self.conf = conf()  # 保存配置对象
+        self.debug = self.conf.get('debug', False)
+        self.move_historyTask_time = self.conf.get('move_historyTask_time', '04:00:00')
+        self.time_check_rate = self.conf.get('time_check_rate', 1)
         
         # 初始化任务列表
         try:
@@ -59,6 +53,17 @@ class TaskManager(object):
         except Exception as e:
             print(f"[ERROR] 初始化任务列表时出错: {str(e)}")
             
+        # 初始化任务状态
+        try:
+            self.initTaskStates()
+        except Exception as e:
+            print(f"[ERROR] 初始化任务状态时出错: {str(e)}")
+        
+        # 创建子线程
+        t = threading.Thread(target=self.pingTimeTask_in_sub_thread)
+        t.setDaemon(True) 
+        t.start()
+        
     def _is_valid_task(self, task):
         """检查任务是否有效"""
         try:
@@ -88,23 +93,18 @@ class TaskManager(object):
         #存放历史数据
         self.historyTasks = []
         
-        #配置加载
-        load_config()
-        self.conf = conf()
-        self.debug = self.conf.get("debug", False)
         print(f"Debug mode is {'on' if self.debug else 'off'}")  
-        #迁移任务的时间
-        self.move_historyTask_time = self.conf.get("move_historyTask_time", "04:00:00")
-        #默认每秒检测一次
-        self.time_check_rate = self.conf.get("time_check_rate", 1)
         
         #excel创建
         obj = ExcelTool()
         obj.create_excel()
+        
         #任务数组
         self.refreshDataFromExcel()
+        
         #过期任务数组、现在待消费数组、未来任务数组
         historyArray, _, _ = self.getFuncArray(self.timeTasks)
+        
         #启动时，默认迁移一次过期任务
         self.moveTask_toHistory(historyArray)
         
