@@ -342,7 +342,7 @@ class TaskManager(object):
                         print(f"[ERROR] 重置任务 {item.taskId} 状态失败")
                         
                     # 处理cron任务
-                    if item.is_cron:
+                    if item.isCron_time():
                         from croniter import croniter
                         base = current_time.datetime
                         cron = croniter(item.date + " " + item.time, base)
@@ -379,7 +379,7 @@ class TaskManager(object):
                 task_date = item.date
                 
                 # 处理cron表达式
-                if item.is_cron:
+                if item.isCron_time():
                     from croniter import croniter
                     try:
                         cron = croniter(task_date + " " + task_time)
@@ -539,10 +539,10 @@ class TaskManager(object):
                         print(f"[ERROR] 重置任务 {task.taskId} 状态失败")
                     
                     # 处理cron任务
-                    if task.is_cron:
+                    if task.isCron_time():
                         from croniter import croniter
                         base = current_time.datetime
-                        cron = croniter(task.date + " " + task.time, base)
+                        cron = croniter(task.circleTimeStr + " " + task.timeStr, base)
                         next_time = arrow.get(cron.get_next())
                         task.next_run_time = next_time
                         print(f"[DEBUG] 设置cron任务 {task.taskId} 下次执行时间: {next_time}")
