@@ -345,7 +345,7 @@ class TaskManager(object):
                     if item.isCron_time():
                         from croniter import croniter
                         base = current_time.datetime
-                        cron = croniter(item.date + " " + item.time, base)
+                        cron = croniter(item.circleTimeStr + " " + item.timeStr, base)
                         next_time = arrow.get(cron.get_next())
                         item.next_run_time = next_time
                         print(f"[DEBUG] 更新cron任务 {item.taskId} 下次执行时间: {next_time}")
@@ -375,8 +375,8 @@ class TaskManager(object):
                 if not isinstance(item, TimeTaskModel):
                     continue
                     
-                task_time = item.time
-                task_date = item.date
+                task_time = item.timeStr
+                task_date = item.circleTimeStr
                 
                 # 处理cron表达式
                 if item.isCron_time():
