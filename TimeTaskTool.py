@@ -29,6 +29,14 @@ class TaskManager(object):
         # 初始化任务锁集合
         self._task_locks = set()
         
+        # 初始化任务状态
+        self.initTaskStates()
+        
+        # 创建子线程
+        t = threading.Thread(target=self.pingTimeTask_in_sub_thread)
+        t.setDaemon(True) 
+        t.start()
+        
         # 初始化任务列表
         self.timeTasks = []  # 任务列表
         self.historyTasks = []  # 历史任务列表
@@ -36,11 +44,9 @@ class TaskManager(object):
         self.moveHistoryTask_identifier = ""  # 迁移历史任务标识符
         
         # 加载配置
-        load_config()  # 确保先加载配置
-        self.conf = conf()  # 保存配置对象
-        self.debug = self.conf.get('debug', False)
-        self.move_historyTask_time = self.conf.get('move_historyTask_time', '04:00:00')
-        self.time_check_rate = self.conf.get('time_check_rate', 1)
+        self.config = load_config()
+        self.debug = self.config.get('debug', False)
+        self.move_historyTask_time = self.config.get('move_historyTask_time', '04:00:00')
         
         # 初始化任务列表
         try:
@@ -53,17 +59,6 @@ class TaskManager(object):
         except Exception as e:
             print(f"[ERROR] 初始化任务列表时出错: {str(e)}")
             
-        # 初始化任务状态
-        try:
-            self.initTaskStates()
-        except Exception as e:
-            print(f"[ERROR] 初始化任务状态时出错: {str(e)}")
-        
-        # 创建子线程
-        t = threading.Thread(target=self.pingTimeTask_in_sub_thread)
-        t.setDaemon(True) 
-        t.start()
-        
     def _is_valid_task(self, task):
         """检查任务是否有效"""
         try:
@@ -93,18 +88,23 @@ class TaskManager(object):
         #存放历史数据
         self.historyTasks = []
         
+        #配置加载
+        load_config()
+        self.conf = conf()
+        self.debug = self.conf.get("debug", False)
         print(f"Debug mode is {'on' if self.debug else 'off'}")  
+        #迁移任务的时间
+        self.move_historyTask_time = self.conf.get("move_historyTask_time", "04:00:00")
+        #默认每秒检测一次
+        self.time_check_rate = self.conf.get("time_check_rate", 1)
         
         #excel创建
         obj = ExcelTool()
         obj.create_excel()
-        
         #任务数组
         self.refreshDataFromExcel()
-        
         #过期任务数组、现在待消费数组、未来任务数组
         historyArray, _, _ = self.getFuncArray(self.timeTasks)
-        
         #启动时，默认迁移一次过期任务
         self.moveTask_toHistory(historyArray)
         
@@ -180,8 +180,6 @@ class TaskManager(object):
                 if task_lock_key in self._task_locks:
                     print(f"[DEBUG] 任务 {task.taskId} 在 {current_minute} 已执行，跳过")
                     continue
-                # 先添加任务锁,再添加到待执行列表
-                self._task_locks.add(task_lock_key)
                 filtered_tasks.append(task)
             
             # 执行任务
@@ -342,10 +340,10 @@ class TaskManager(object):
                         print(f"[ERROR] 重置任务 {item.taskId} 状态失败")
                         
                     # 处理cron任务
-                    if item.isCron_time():
+                    if item.is_cron:
                         from croniter import croniter
                         base = current_time.datetime
-                        cron = croniter(item.circleTimeStr + " " + item.timeStr, base)
+                        cron = croniter(item.date + " " + item.time, base)
                         next_time = arrow.get(cron.get_next())
                         item.next_run_time = next_time
                         print(f"[DEBUG] 更新cron任务 {item.taskId} 下次执行时间: {next_time}")
@@ -375,11 +373,11 @@ class TaskManager(object):
                 if not isinstance(item, TimeTaskModel):
                     continue
                     
-                task_time = item.timeStr
-                task_date = item.circleTimeStr
+                task_time = item.time
+                task_date = item.date
                 
                 # 处理cron表达式
-                if item.isCron_time():
+                if item.is_cron:
                     from croniter import croniter
                     try:
                         cron = croniter(task_date + " " + task_time)
@@ -539,10 +537,10 @@ class TaskManager(object):
                         print(f"[ERROR] 重置任务 {task.taskId} 状态失败")
                     
                     # 处理cron任务
-                    if task.isCron_time():
+                    if task.is_cron:
                         from croniter import croniter
                         base = current_time.datetime
-                        cron = croniter(task.circleTimeStr + " " + task.timeStr, base)
+                        cron = croniter(task.date + " " + task.time, base)
                         next_time = arrow.get(cron.get_next())
                         task.next_run_time = next_time
                         print(f"[DEBUG] 设置cron任务 {task.taskId} 下次执行时间: {next_time}")
