@@ -6,6 +6,7 @@ import logging
 import time
 import arrow
 import threading
+import os
 from typing import List
 from plugins.timetask.config import conf, load_config
 from lib import itchat
@@ -130,32 +131,53 @@ class TaskManager(object):
                 logging.info("[timetask][定时检测]：当前时刻 - 无定时任务...")
             return
         
-        # 添加执行锁检查，防止重复执行
-        current_minute = arrow.now().format('YYYY-MM-DD HH:mm')
-        for task in currentExpendArray[:]:  # 使用切片创建副本以避免修改迭代中的列表
-            task_lock_key = f"{task.taskId}_{current_minute}"
-            if task_lock_key in self._task_locks:
-                print(f"任务 {task.taskId} 在当前分钟 {current_minute} 已执行，跳过")
-                currentExpendArray.remove(task)
+        # 使用更精确的时间戳作为锁标识
+        current_timestamp = arrow.now().format('YYYY-MM-DD HH:mm:ss')
+
+        # 创建文件锁目录（如果不存在）
+        lock_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "task_locks")
+        if not os.path.exists(lock_dir):
+            os.makedirs(lock_dir)
+
+        # 使用文件锁检查任务是否已执行
+        for task in currentExpendArray[:]:
+            # 使用任务ID和分钟时间戳创建锁文件名
+            lock_file = os.path.join(lock_dir, f"{task.taskId}_{arrow.now().format('YYYY-MM-DD_HH-mm')}.lock")
+
+            try:
+                # 尝试创建锁文件
+                if os.path.exists(lock_file):
+                    print(f"任务 {task.taskId} 在当前时间 {current_timestamp} 已执行，跳过")
+                    currentExpendArray.remove(task)
+                    continue
+
+                # 创建锁文件并写入时间戳
+                with open(lock_file, 'w') as f:
+                    f.write(current_timestamp)
+
+            except Exception as e:
+                print(f"处理任务锁时出错: {str(e)}")
                 continue
-                
-        # 记录本次待执行的任务锁
-        for task in currentExpendArray:
-            task_lock_key = f"{task.taskId}_{current_minute}"
-            self._task_locks.add(task_lock_key)
-            
-        # 清理旧的任务锁（保留最近30分钟的记录）
-        current_time = arrow.now()
-        self._task_locks = {lock for lock in self._task_locks 
-                          if current_time.shift(minutes=-30).format('YYYY-MM-DD HH:mm') 
-                          <= lock.split('_')[1]}
-        
-        #消费当前task
+
+        # 清理过期的锁文件（保留最近30分钟的）
+        try:
+            current_time = arrow.now()
+            for lock_file in os.listdir(lock_dir):
+                file_path = os.path.join(lock_dir, lock_file)
+                file_time_str = lock_file.split('_')[1].replace('.lock', '')
+                file_time = arrow.get(file_time_str, 'YYYY-MM-DD_HH-mm')
+
+                if (current_time - file_time).total_seconds() > 1800:  # 30分钟 = 1800秒
+                    os.remove(file_path)
+        except Exception as e:
+            print(f"清理过期锁文件时出错: {str(e)}")
+
+        # 消费当前task
         if len(currentExpendArray) > 0:
             print(f"[timetask][定时检测]：当前时刻 - 存在定时任务, 执行消费 当前时刻任务")
             self.runTaskArray(currentExpendArray)
-        
-        
+
+
     #检测是否重新登录了    
     def check_isRelogin(self):
         #机器人ID
