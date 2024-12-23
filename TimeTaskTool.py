@@ -180,6 +180,8 @@ class TaskManager(object):
                 if task_lock_key in self._task_locks:
                     print(f"[DEBUG] 任务 {task.taskId} 在 {current_minute} 已执行，跳过")
                     continue
+                # 先添加任务锁,再添加到待执行列表
+                self._task_locks.add(task_lock_key)
                 filtered_tasks.append(task)
             
             # 执行任务
