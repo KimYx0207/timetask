@@ -745,75 +745,78 @@ class TimeTaskModel:
         time_good2 = re.match(pattern2, timeStr)
         
         g_time = ""
-        if time_good1 :
+        if time_good1:
             g_time = timeStr
             
         elif time_good2:
             g_time = timeStr + ":00"
         
-        elif '点' in timeStr or '分' in timeStr or '秒' in timeStr :
-            content = timeStr.replace("点", ":")
-            content = content.replace("分", ":")
-            content = content.replace("秒", "")
-            wordsArray = content.split(":")
-            hour = "0"
-            minute = "0"
-            second = "0"
-            digits = {'零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10, 
-                '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15, '十六': 16, '十七': 17, '十八': 18, '十九': 19, '二十': 20, 
-                '二十一': 21, '二十二': 22, '二十三': 23, '二十四': 24, '二十五': 25, '二十六': 26, '二十七': 27, '二十八': 28, '二十九': 29, '三十': 30, 
-                '三十一': 31, '三十二': 32, '三十三': 33, '三十四': 34, '三十五': 35, '三十六': 36, '三十七': 37, '三十八': 38, '三十九': 39, '四十': 40, 
-                '四十一': 41, '四十二': 42, '四十三': 43, '四十四': 44, '四十五': 45, '四十六': 46, '四十七': 47, '四十八': 48, '四十九': 49, '五十': 50, 
-                '五十一': 51, '五十二': 52, '五十三': 53, '五十四': 54, '五十五': 55, '五十六': 56, '五十七': 57, '五十八': 58, '五十九': 59, '六十': 60, '半': 30}
-            littleNumArray = ["01", "02", "03", "04", "05", "06", "07", "08", "09"]
-            for index, item in enumerate(wordsArray):
-                if index == 0 and len(item) > 0:
-                    #中文 且 在一 至 六十之间
-                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
-                        hour = str(digits[item])
-                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
-                         hour = str(item)
+        elif '点' in timeStr or '分' in timeStr or '秒' in timeStr:
+            try:
+                content = timeStr.replace("早上", "").replace("上午", "").replace("中午", "").replace("下午", "").replace("晚上", "")
+                content = content.replace("点", ":").replace("分", ":").replace("秒", "")
+                # 处理特殊情况如"八点"
+                wordsArray = content.split(":")
+                digits = {'零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+                    '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15, '十六': 16, '十七': 17, '十八': 18, '十九': 19, '二十': 20,
+                    '二十一': 21, '二十二': 22, '二十三': 23, '二十四': 24}
+                
+                hour = "0"
+                minute = "0"
+                second = "0"
+                
+                # 处理小时
+                if len(wordsArray) > 0 and wordsArray[0]:
+                    if wordsArray[0] in digits:
+                        hour = str(digits[wordsArray[0]])
                     else:
-                        return ""       
+                        try:
+                            hour = str(int(wordsArray[0]))
+                        except:
+                            print(f"无法解析小时: {wordsArray[0]}")
+                            return ""
                             
-                elif index == 1 and len(item) > 0:
-                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
-                        minute = str(digits[item])
-                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
-                        minute = str(item)
+                # 处理分钟
+                if len(wordsArray) > 1 and wordsArray[1]:
+                    if wordsArray[1] in digits:
+                        minute = str(digits[wordsArray[1]])
                     else:
-                        return ""  
-                        
-                elif index == 2 and len(item) > 0:
-                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
-                        second = str(digits[item])
-                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
-                        second = str(item)  
+                        try:
+                            minute = str(int(wordsArray[1]))
+                        except:
+                            minute = "0"
+                            
+                # 处理秒
+                if len(wordsArray) > 2 and wordsArray[2]:
+                    if wordsArray[2] in digits:
+                        second = str(digits[wordsArray[2]])
                     else:
-                        return ""    
-            
-            #格式处理       
-            if int(hour) < 10:
-                  hour = "0" + str(int(hour))
-                      
-            if int(minute) < 10:
-                  minute = "0" + str(int(minute))
-                  
-            if int(second) < 10:
-                  second = "0" + str(int(second))  
-            
-            #拼接     
-            g_time = hour + ":" + minute + ":" + second                                       
-            
+                        try:
+                            second = str(int(wordsArray[2]))
+                        except:
+                            second = "0"
+                
+                # 格式化时间
+                if int(hour) < 10:
+                    hour = "0" + str(int(hour))
+                if int(minute) < 10:
+                    minute = "0" + str(int(minute))
+                if int(second) < 10:
+                    second = "0" + str(int(second))
+                
+                g_time = f"{hour}:{minute}:{second}"
+                print(f"转换时间: {timeStr} -> {g_time}")
+                
+            except Exception as e:
+                print(f"时间转换错误: {str(e)}")
+                return ""
         else:
-            print('暂不支持的格式')
+            print(f'不支持的时间格式: {timeStr}')
             return ""
             
-        #检测转换的时间是否合法    
-        time_good1 = re.match(pattern1, g_time)
-        if time_good1:
-              return g_time
-                 
+        # 验证最终时间格式
+        if re.match(pattern1, g_time):
+            return g_time
         return ""
     
     #是否 cron表达式
