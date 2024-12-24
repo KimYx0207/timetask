@@ -296,40 +296,51 @@ class TaskManager(object):
         #当前状态
         current_task_state = self.refreshTimeTask_identifier
         
-        #未执行
-        if current_task_state == "":
-            #打印此时任务
-            new_array = [item.taskId for item in self.timeTasks]
-            print(f"[timeTask] 触发了凌晨刷新任务~ 当前任务ID为：{new_array}")
+        try:
+            #未执行
+            if current_task_state == "":
+                #打印此时任务
+                new_array = [item.taskId for item in self.timeTasks]
+                print(f"[timeTask] 触发了凌晨刷新任务~ 当前任务ID为：{new_array}")
+                
+                #置为执行中
+                self.refreshTimeTask_identifier = identifier_running
+                #刷新任务
+                for m in modelArray:
+                    taskModel : TimeTaskModel = m
+                    taskModel.is_today_consumed = False
+                    ExcelTool().write_columnValue_withTaskId_toExcel(taskModel.taskId, 14, "0")
+                    print(f"重置任务状态: {taskModel.taskId}")
+                
+                #刷新数据
+                self.refreshDataFromExcel()
+                
+                #设置完成标识
+                self.refreshTimeTask_identifier = identifier_end
+                print("[timeTask] 凌晨刷新任务完成")
+                
+            #执行中    
+            elif current_task_state == identifier_running:
+                return
             
-            #置为执行中
-            self.refreshTimeTask_identifier = identifier_running
-            #刷新任务
-            for m in modelArray:
-                taskModel : TimeTaskModel = m
-                taskModel.is_today_consumed = False
-                ExcelTool().write_columnValue_withTaskId_toExcel(taskModel.taskId, 14, "0")
-            
-            #刷新数据
-            self.refreshDataFromExcel()
-            
-        #执行中    
-        elif current_task_state == identifier_running:
-            return
-        
-        #执行完成
-        elif current_task_state == identifier_end:
-            self.refreshTimeTask_identifier == ""
-            
-        #容错：如果时间未跳动，则正常命中【执行完成】； 异常时间跳动时，则比较时间
-        elif "_end" in current_task_state:
-            #标识符中的时间
-            tempTimeStr = current_task_state.replace("_end", ":00")
-            current_time = arrow.now().replace(second=0, microsecond=0).time()
-            task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0).time()
-            tempValue = task_time < current_time
-            if tempValue:
-                self.refreshTimeTask_identifier == ""
+            #执行完成
+            elif current_task_state == identifier_end:
+                self.refreshTimeTask_identifier = ""
+                
+            #容错：如果时间未跳动，则正常命中【执行完成】； 异常时间跳动时，则比较时间
+            elif "_end" in current_task_state:
+                #标识符中的时间
+                tempTimeStr = current_task_state.replace("_end", ":00")
+                current_time = arrow.now().replace(second=0, microsecond=0).time()
+                task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0).time()
+                tempValue = task_time < current_time
+                if tempValue:
+                    self.refreshTimeTask_identifier = ""
+                    
+        except Exception as e:
+            print(f"刷新任务状态时发生错误: {str(e)}")
+            #出错时重置标识符,允许重试
+            self.refreshTimeTask_identifier = ""
        
     #获取功能数组    
     def getFuncArray(self, modelArray):
