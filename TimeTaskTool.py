@@ -413,6 +413,19 @@ class TaskManager(object):
     #执行task
     def runTaskItem(self, model: TimeTaskModel):
         try:
+            # 获取当前时间，用于任务锁
+            current_minute = arrow.now().format('YYYY-MM-DD HH:mm')
+            task_lock_key = f"{model.taskId}_{current_minute}"
+            
+            # 检查任务锁
+            if hasattr(self, '_task_locks') and task_lock_key in self._task_locks:
+                print(f"任务 {model.taskId} 在 {current_minute} 已经执行过，跳过")
+                return
+            
+            # 添加任务锁
+            if hasattr(self, '_task_locks'):
+                self._task_locks.add(task_lock_key)
+            
             #非cron，置为已消费
             if not model.isCron_time():
                 model.is_today_consumed = True
@@ -421,7 +434,10 @@ class TaskManager(object):
             
             print(f"😄执行定时任务:【{model.taskId}】，任务详情：{model.circleTimeStr} {model.timeStr} {model.eventStr}")
             #回调定时任务执行
-            self.timeTaskFunc(model)
+            if self.timeTaskFunc:
+                self.timeTaskFunc(model)
+            else:
+                print(f"警告：任务 {model.taskId} 的回调函数未设置")
             
             #任务消费
             if not model.is_featureDay():
@@ -437,8 +453,6 @@ class TaskManager(object):
                 model.is_today_consumed = False
                 ExcelTool().write_columnValue_withTaskId_toExcel(model.taskId, 14, "0")
             # 从任务锁中移除，允许重试
-            current_minute = arrow.now().format('YYYY-MM-DD HH:mm')
-            task_lock_key = f"{model.taskId}_{current_minute}"
             if hasattr(self, '_task_locks') and task_lock_key in self._task_locks:
                 self._task_locks.remove(task_lock_key)
         

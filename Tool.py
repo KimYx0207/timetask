@@ -613,7 +613,7 @@ class TimeTaskModel:
         
         else:     
             tempStr = self.circleTimeStr
-            tempValue = "每周" in tempStr or "每星期" in tempStr or "每天" in tempStr  or "工作日" in tempStr
+            tempValue = "每天" in tempStr or "每周" in tempStr or "每星期" in tempStr  or "工作日" in tempStr
             #日期
             if self.is_valid_date(tempStr):
                 tempValue = arrow.get(tempStr, 'YYYY-MM-DD').date() > arrow.now().date()
@@ -622,50 +622,47 @@ class TimeTaskModel:
     
     #是否today      
     def is_today(self):
-        #cron   
-        if self.isCron_time():
-            return True 
-        
-        #当前时间
-        current_time = arrow.now()
-        #轮询信息
-        item_circle = self.circleTimeStr
-        if self.is_valid_date(item_circle):
-            #日期相等
-            if item_circle == current_time.format('YYYY-MM-DD'):
-                #今天要出发的任务
-                #print(f"[定时任务]类型: 录入日期, 日期信息：{item_circle}")
-                return True
-            else:
-                #其他时间待出发
-                #print(f"[定时任务]类型: 录入日期, 非今天任务, 日期信息：{item_circle}")
-                return False
+        try:
+            #cron   
+            if self.isCron_time():
+                return True 
             
-        elif "每天" in item_circle:
-            #今天要出发的任务
-            #print(f"[定时任务]类型：每天")
-            return True
-        
-        elif "每周" in item_circle or "每星期" in item_circle:
-            if self.is_today_weekday(item_circle):
-                #print(f"[定时任务]类型: 每周, 日期信息：{item_circle}")
-                return True
-            else:
-                #print(f"[定时任务]类型: 每周, 非今天任务, 日期信息为：{item_circle}")
-                return False    
+            #当前时间
+            current_date = arrow.now().format('YYYY-MM-DD')
+            #轮询信息
+            item_circle = self.circleTimeStr
             
-        elif "工作日" in item_circle:
-                # 判断星期几
-                weekday = arrow.now().weekday()
-                # 判断是否是工作日
-                is_weekday = weekday < 5
-                if is_weekday:
-                    #print(f"[定时任务]类型: 工作日")
+            # 如果任务日期为空，说明是每天执行的任务
+            if not item_circle or item_circle.strip() == "":
+                return True
+                
+            # 处理具体日期格式
+            if self.is_valid_date(item_circle):
+                if item_circle == current_date:
                     return True
-                else:
-                    #print(f"[定时任务]类型: 工作日, 非今天任务，日期信息为：{item_circle}")
-                    return False    
-                    
+                return False
+                
+            # 处理周期性任务
+            elif "每天" in item_circle:
+                return True
+                
+            elif "每周" in item_circle or "每星期" in item_circle:
+                return self.is_today_weekday(item_circle)
+                
+            elif "工作日" in item_circle:
+                # 判断星期几（0-6，0是周一）
+                weekday = arrow.now().weekday()
+                # 判断是否是工作日（周一到周五）
+                return weekday < 5
+                
+            else:
+                print(f"警告：任务 {self.taskId} 的日期格式不支持: {item_circle}")
+                return False
+                
+        except Exception as e:
+            print(f"检查任务日期时发生错误: {str(e)}")
+            return False
+    
     #是否今天的星期数       
     def is_today_weekday(self, weekday_str):
         # 将中文数字转换为阿拉伯数字
