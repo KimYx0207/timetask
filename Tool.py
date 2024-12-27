@@ -11,12 +11,18 @@ import arrow
 import re
 from typing import List
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from lib import itchat
 from lib.itchat.content import *
 from channel.chat_message import ChatMessage
 from croniter import croniter
 import threading
+import logging
+
+# 日志配置
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 try:
     from channel.wechatnt.ntchat_channel import wechatnt
 except Exception as e:
@@ -565,33 +571,33 @@ class TimeTaskModel:
         return short_id
     
     
-    #是否现在时间(精确到分钟)    
+    #判断是否当前时间    
     def is_nowTime(self):
+        """判断是否当前时间"""
+        tempTimeStr = self.timeStr
+        if not tempTimeStr:
+            return False
             
-        # 获取当前时间（忽略秒数）
-        current_time = arrow.now().format('HH:mm')
-             
+        if tempTimeStr.count(":") == 1:
+           tempTimeStr = tempTimeStr + ":00"
+        
         #cron   
         if self.isCron_time():
-            #是否在今天的待执行列表中
-            tempValue = current_time in self.cron_today_times
-            return tempValue, current_time
-        
-        else: 
-            #时间
-            tempTimeStr = self.timeStr
-            #如果分钟，补充00秒钟格式
-            if tempTimeStr.count(":") == 1:
-                tempTimeStr = tempTimeStr + ":00"
+            return True 
+        else:    
+            #对比精准到分（忽略秒）
+            current_time = arrow.now().replace(second=0, microsecond=0).time()
+            task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0).time()
+            tempValue = task_time == current_time
+            return tempValue
             
-            task_time = arrow.get(tempTimeStr, "HH:mm:ss").format("HH:mm")
-            tempValue = current_time == task_time
-            return tempValue, current_time
-    
-    #是否未来时间(精确到分钟) 
+    #判断是否未来时间    
     def is_featureTime(self):
+        """判断是否未来时间"""
         tempTimeStr = self.timeStr
-        #如果是分支，补充00秒钟
+        if not tempTimeStr:
+            return False
+            
         if tempTimeStr.count(":") == 1:
            tempTimeStr = tempTimeStr + ":00"
         
@@ -605,71 +611,71 @@ class TimeTaskModel:
             tempValue = task_time > current_time
             return tempValue 
     
-    #是否未来day      
+    #判断是否未来日期    
     def is_featureDay(self):
+        """判断是否未来日期"""
         #cron   
         if self.isCron_time():
             return True
         
         else:     
             tempStr = self.circleTimeStr
-            tempValue = "每周" in tempStr or "每星期" in tempStr or "每天" in tempStr  or "工作日" in tempStr
+            tempValue = "每天" in tempStr or "每周" in tempStr or "每星期" in tempStr  or "工作日" in tempStr
             #日期
             if self.is_valid_date(tempStr):
                 tempValue = arrow.get(tempStr, 'YYYY-MM-DD').date() > arrow.now().date()
                 
             return tempValue 
     
-    #是否today      
+    #判断是否今天    
     def is_today(self):
-        #cron   
-        if self.isCron_time():
-            return True 
-        
-        #当前时间
-        current_time = arrow.now()
-        #轮询信息
-        item_circle = self.circleTimeStr
-        if self.is_valid_date(item_circle):
-            #日期相等
-            if item_circle == current_time.format('YYYY-MM-DD'):
-                #今天要出发的任务
-                #print(f"[定时任务]类型: 录入日期, 日期信息：{item_circle}")
-                return True
-            else:
-                #其他时间待出发
-                #print(f"[定时任务]类型: 录入日期, 非今天任务, 日期信息：{item_circle}")
-                return False
+        """判断是否今天"""
+        try:
+            #cron   
+            if self.isCron_time():
+                return True 
             
-        elif "每天" in item_circle:
-            #今天要出发的任务
-            #print(f"[定时任务]类型：每天")
-            return True
-        
-        elif "每周" in item_circle or "每星期" in item_circle:
-            if self.is_today_weekday(item_circle):
-                #print(f"[定时任务]类型: 每周, 日期信息：{item_circle}")
-                return True
-            else:
-                #print(f"[定时任务]类型: 每周, 非今天任务, 日期信息为：{item_circle}")
-                return False    
+            #当前时间
+            current_date = arrow.now().format('YYYY-MM-DD')
+            #轮询信息
+            item_circle = self.circleTimeStr
             
-        elif "工作日" in item_circle:
-                # 判断星期几
-                weekday = arrow.now().weekday()
-                # 判断是否是工作日
-                is_weekday = weekday < 5
-                if is_weekday:
-                    #print(f"[定时任务]类型: 工作日")
+            # 如果任务日期为空，说明是每天执行的任务
+            if not item_circle or item_circle.strip() == "":
+                return True
+                
+            # 处理具体日期格式
+            if self.is_valid_date(item_circle):
+                if item_circle == current_date:
                     return True
-                else:
-                    #print(f"[定时任务]类型: 工作日, 非今天任务，日期信息为：{item_circle}")
-                    return False    
-                    
-    #是否今天的星期数       
+                return False
+                
+            # 处理周期性任务
+            elif "每天" in item_circle:
+                return True
+                
+            elif "每周" in item_circle or "每星期" in item_circle:
+                return self.is_today_weekday(item_circle)
+                
+            elif "工作日" in item_circle:
+                # 判断星期几（0-6，0是周一）
+                weekday = arrow.now().weekday()
+                # 判断是否是工作日（周一到周五）
+                return weekday < 5
+                
+            else:
+                print(f"警告：任务 {self.taskId} 的日期格式不支持: {item_circle}")
+                return False
+                
+        except Exception as e:
+            print(f"检查任务日期时发生错误: {str(e)}")
+            return False
+    
+    #判断是否今天的星期数    
     def is_today_weekday(self, weekday_str):
+        """判断是否今天的星期数"""
         # 将中文数字转换为阿拉伯数字
-        weekday_dict = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 7}
+        weekday_dict = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 7, '天': 7}
         weekday_num = weekday_dict.get(weekday_str[-1])
         if weekday_num is None:
             return False
@@ -679,142 +685,178 @@ class TimeTaskModel:
         tempValue = today.weekday() == weekday_num - 1   
         return tempValue   
         
-    #日期是否格式正确
+    #判断日期格式是否正确    
     def is_valid_date(self, date_string):
+        """判断日期格式是否正确"""
+        if not date_string:
+            return False
         pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
         match = pattern.match(date_string)
         return match is not None
     
     #获取周期
     def get_cicleDay(self, circleStr):
-        
-        # 定义正则表达式
-        pattern = r'^\d{4}-\d{2}-\d{2}$'
-        # 是否符合 YYYY-MM-DD 格式的日期
-        isGoodDay = re.match(pattern, circleStr)
-        
-        g_circle = ""
-        #如果可被解析为具体日期
-        if circleStr in ['今天', '明天', '后天']:
-              #今天
-              today = arrow.now('local')
-              if circleStr == '今天':
-                    # 将日期格式化为 YYYY-MM-DD 的格式
-                    formatted_today = today.format('YYYY-MM-DD')
-                    g_circle = formatted_today
-                    
-              elif circleStr == '明天':
-                    tomorrow = today.shift(days=1)
-                    formatted_tomorrow = tomorrow.format('YYYY-MM-DD')
-                    g_circle = formatted_tomorrow
-                    
-              elif circleStr == '后天':
-                    after_tomorrow = today.shift(days=2)
-                    formatted_after_tomorrow = after_tomorrow.format('YYYY-MM-DD')
-                    g_circle = formatted_after_tomorrow
-              else:
-                  print('暂不支持的格式')
-                   
-                    
-        #YYYY-MM-DD 格式
-        elif isGoodDay:
-            g_circle = circleStr
-            
-        #每天、每周、工作日
-        elif circleStr in ["每天", "每周", "工作日"]:
-                g_circle = circleStr
-        
-        #每周X
-        elif circleStr in ["每周一", "每周二", "每周三", "每周四", "每周五", "每周六","每周日","每周天", 
-                           "每星期一", "每星期二","每星期三", "每星期四", "每星期五","每星期六", "每星期日", "每星期天"]:       
-            #每天、每周X等
-            g_circle = circleStr
-            
-        else:
-            print('暂不支持的格式')
-            
-        return g_circle
-    
-    #获取时间
-    def get_time(self, timeStr):
-        pattern1 = r'^\d{2}:\d{2}:\d{2}$'
-        pattern2 = r'^\d{2}:\d{2}$'
-        # 是否符合 HH:mm:ss 格式
-        time_good1 = re.match(pattern1, timeStr)
-        # 是否符合 HH:mm 格式
-        time_good2 = re.match(pattern2, timeStr)
-        
-        g_time = ""
-        if time_good1 :
-            g_time = timeStr
-            
-        elif time_good2:
-            g_time = timeStr + ":00"
-        
-        elif '点' in timeStr or '分' in timeStr or '秒' in timeStr :
-            content = timeStr.replace("点", ":")
-            content = content.replace("分", ":")
-            content = content.replace("秒", "")
-            wordsArray = content.split(":")
-            hour = "0"
-            minute = "0"
-            second = "0"
-            digits = {'零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10, 
-                '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15, '十六': 16, '十七': 17, '十八': 18, '十九': 19, '二十': 20, 
-                '二十一': 21, '二十二': 22, '二十三': 23, '二十四': 24, '二十五': 25, '二十六': 26, '二十七': 27, '二十八': 28, '二十九': 29, '三十': 30, 
-                '三十一': 31, '三十二': 32, '三十三': 33, '三十四': 34, '三十五': 35, '三十六': 36, '三十七': 37, '三十八': 38, '三十九': 39, '四十': 40, 
-                '四十一': 41, '四十二': 42, '四十三': 43, '四十四': 44, '四十五': 45, '四十六': 46, '四十七': 47, '四十八': 48, '四十九': 49, '五十': 50, 
-                '五十一': 51, '五十二': 52, '五十三': 53, '五十四': 54, '五十五': 55, '五十六': 56, '五十七': 57, '五十八': 58, '五十九': 59, '六十': 60, '半': 30}
-            littleNumArray = ["01", "02", "03", "04", "05", "06", "07", "08", "09"]
-            for index, item in enumerate(wordsArray):
-                if index == 0 and len(item) > 0:
-                    #中文 且 在一 至 六十之间
-                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
-                        hour = str(digits[item])
-                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
-                         hour = str(item)
-                    else:
-                        return ""       
-                            
-                elif index == 1 and len(item) > 0:
-                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
-                        minute = str(digits[item])
-                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
-                        minute = str(item)
-                    else:
-                        return ""  
-                        
-                elif index == 2 and len(item) > 0:
-                    if re.search('[\u4e00-\u9fa5]', item) and item in digits.keys():
-                        second = str(digits[item])
-                    elif item in digits.values() or int(item) in digits.values() or item in littleNumArray:
-                        second = str(item)  
-                    else:
-                        return ""    
-            
-            #格式处理       
-            if int(hour) < 10:
-                  hour = "0" + str(int(hour))
-                      
-            if int(minute) < 10:
-                  minute = "0" + str(int(minute))
-                  
-            if int(second) < 10:
-                  second = "0" + str(int(second))  
-            
-            #拼接     
-            g_time = hour + ":" + minute + ":" + second                                       
-            
-        else:
-            print('暂不支持的格式')
+        """获取格式化的日期"""
+        if not circleStr:
             return ""
             
-        #检测转换的时间是否合法    
-        time_good1 = re.match(pattern1, g_time)
-        if time_good1:
-              return g_time
-                 
-        return ""
+        g_circle = ""
+        pattern1 = r'^\d{4}-\d{2}-\d{2}$'
+        pattern2 = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$'
+        pattern3 = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
+        
+        try:
+            # 如果是cron表达式，直接返回
+            if circleStr.startswith("cron["):
+                return circleStr
+                
+            # 处理中文日期
+            if circleStr in ['今天', '明天', '后天']:
+                today = arrow.now('local')
+                if circleStr == '今天':
+                    g_circle = today.format('YYYY-MM-DD HH:mm:ss')
+                elif circleStr == '明天':
+                    g_circle = today.shift(days=1).format('YYYY-MM-DD HH:mm:ss')
+                elif circleStr == '后天':
+                    g_circle = today.shift(days=2).format('YYYY-MM-DD HH:mm:ss')
+                return g_circle
+                
+            # 处理周期性日期
+            if circleStr in ["每天", "每周", "工作日"]:
+                return circleStr
+                
+            # 处理每周X
+            if circleStr in ["每周一", "每周二", "每周三", "每周四", "每周五", "每周六","每周日","每周天", 
+                           "每星期一", "每星期二","每星期三", "每星期四", "每星期五","每星期六", "每星期日", "每星期天"]:
+                return circleStr
+                
+            # 尝试解析标准日期格式
+            if re.match(pattern1, circleStr):
+                # 如果只有日期，添加时间
+                g_circle = f"{circleStr} 00:00:00"
+            elif re.match(pattern2, circleStr):
+                # 如果有日期和时分，添加秒
+                g_circle = f"{circleStr}:00"
+            elif re.match(pattern3, circleStr):
+                # 如果格式完整，直接使用
+                g_circle = circleStr
+            else:
+                # 尝试智能解析日期
+                try:
+                    parsed_date = arrow.get(circleStr)
+                    g_circle = parsed_date.format('YYYY-MM-DD HH:mm:ss')
+                except Exception as e:
+                    print(f"智能解析日期失败: {str(e)}")
+                    return ""
+                    
+            print(f"转换日期: {circleStr} -> {g_circle}")
+            return g_circle
+            
+        except Exception as e:
+            print(f"日期转换错误: {str(e)}")
+            return ""
+    
+    def get_time(self, timeStr):
+        """获取格式化的时间"""
+        if not timeStr:
+            return ""
+            
+        g_time = ""
+        pattern1 = r'^\d{2}:\d{2}:\d{2}$'
+        pattern2 = r'^\d{2}:\d{2}$'
+        
+        try:
+            # 如果是cron表达式，直接返回
+            if timeStr.startswith("cron["):
+                return timeStr
+                
+            # 尝试解析标准时间格式
+            if re.match(pattern1, timeStr):
+                # 如果格式完整，直接使用
+                g_time = timeStr
+            elif re.match(pattern2, timeStr):
+                # 如果只有时分，添加秒
+                g_time = f"{timeStr}:00"
+            else:
+                # 处理中文时间描述
+                try:
+                    # 预处理时间字符串
+                    content = timeStr.replace("早上", "").replace("上午", "").replace("中午", "").replace("下午", "").replace("晚上", "")
+                    content = content.replace("点", ":").replace("分", ":").replace("秒", "")
+                    
+                    # 中文数字映射
+                    digits = {
+                        '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+                        '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15, '十六': 16, '十七': 17, '十八': 18, '十九': 19, '二十': 20,
+                        '二十一': 21, '二十二': 22, '二十三': 23, '二十四': 24
+                    }
+                    
+                    # 分解时间部分
+                    parts = content.split(":")
+                    hour = "0"
+                    minute = "0"
+                    second = "0"
+                    
+                    # 处理小时
+                    if len(parts) > 0 and parts[0]:
+                        if parts[0] in digits:
+                            hour = str(digits[parts[0]])
+                        else:
+                            try:
+                                hour = str(int(parts[0]))
+                            except:
+                                print(f"无法解析小时: {parts[0]}")
+                                return ""
+                                
+                    # 处理分钟
+                    if len(parts) > 1 and parts[1]:
+                        if parts[1] in digits:
+                            minute = str(digits[parts[1]])
+                        else:
+                            try:
+                                minute = str(int(parts[1]))
+                            except:
+                                minute = "0"
+                                
+                    # 处理秒
+                    if len(parts) > 2 and parts[2]:
+                        if parts[2] in digits:
+                            second = str(digits[parts[2]])
+                        else:
+                            try:
+                                second = str(int(parts[2]))
+                            except:
+                                second = "0"
+                                
+                    # 处理时间段
+                    if "中午" in timeStr:
+                        if int(hour) < 12:
+                            hour = "12"
+                    elif "下午" in timeStr or "晚上" in timeStr:
+                        if int(hour) < 12:
+                            hour = str(int(hour) + 12)
+                            
+                    # 格式化时间
+                    hour = f"0{hour}" if int(hour) < 10 else hour
+                    minute = f"0{minute}" if int(minute) < 10 else minute
+                    second = f"0{second}" if int(second) < 10 else second
+                    
+                    g_time = f"{hour}:{minute}:{second}"
+                    
+                except Exception as e:
+                    print(f"解析中文时间失败: {str(e)}")
+                    return ""
+                    
+            print(f"转换时间: {timeStr} -> {g_time}")
+            
+            # 验证最终时间格式
+            if re.match(pattern1, g_time):
+                return g_time
+            return ""
+            
+        except Exception as e:
+            print(f"时间转换错误: {str(e)}")
+            return ""
     
     #是否 cron表达式
     def isCron_time(self):
@@ -858,29 +900,33 @@ class TimeTaskModel:
     
     #通过 群Title 获取群ID
     def get_gropID_withGroupTitle(self, groupTitle, channel_name):
+        """通过群标题获取群ID"""
         if len(groupTitle) <= 0:
               return ""
+              
         #itchat
         if channel_name == "wx":
             tempRoomId = ""
             #群聊处理       
             try:
                 #群聊  
-                chatrooms = itchat.get_chatrooms()
+                chatrooms = itchat.get_chatrooms(update=True)  # 添加update=True强制更新群列表
                 #获取群聊
                 for chatroom in chatrooms:
                     #id
                     userName = chatroom["UserName"]
                     NickName = chatroom["NickName"]
-                    if NickName == groupTitle:
+                    # 使用in而不是完全匹配，这样可以处理包含特殊字符的群名
+                    if groupTitle in NickName or NickName in groupTitle:
                         tempRoomId = userName
                         break
                     
+                if not tempRoomId:
+                    print(f"[{channel_name}通道] 未找到群 {groupTitle}，当前群列表：{[room['NickName'] for room in chatrooms]}")
                 return tempRoomId
             except Exception as e:
                 print(f"[{channel_name}通道] 通过 群Title 获取群ID发生错误，错误信息为：{e}")
                 return tempRoomId
-            
             
         elif channel_name == "ntchat":
             tempRoomId = ""
@@ -892,10 +938,13 @@ class TimeTaskModel:
                     for item in rooms:
                         roomId = item.get("wxid")
                         nickname = item.get("nickname")
-                        if nickname == groupTitle:
+                        # 使用模糊匹配来处理特殊字符
+                        if groupTitle in nickname or nickname in groupTitle:
                             tempRoomId = roomId
                             break
-                        
+                            
+                if not tempRoomId:
+                    print(f"[{channel_name}通道] 未找到群 {groupTitle}，当前群列表：{[room.get('nickname') for room in rooms]}")
                 return tempRoomId
                         
             except Exception as e:
@@ -912,21 +961,48 @@ class TimeTaskModel:
                     for item in rooms:
                         roomId = item.get("conversation_id")
                         nickname = item.get("nickname")
-                        if nickname == groupTitle:
+                        # 使用模糊匹配来处理特殊字符
+                        if groupTitle in nickname or nickname in groupTitle:
                             tempRoomId = roomId
                             break
 
+                if not tempRoomId:
+                    print(f"[{channel_name}通道] 未找到群 {groupTitle}，当前群列表：{[room.get('nickname') for room in rooms]}")
                 return tempRoomId
 
             except Exception as e:
                 print(f"[{channel_name}通道] 通过 群Title 获取群ID发生错误，错误信息为：{e}")
-                return tempRoomId
+                return ""
+
         else:
             print(f"[{channel_name}通道] 通过 群Title 获取群ID 不支持的channel，channel为：{channel_name}")
             return ""
-                    
-                
+    
+class CleanFiles:
+    def __init__(self, save_path):
+        self.save_path = save_path
+
+    def clean_expired_files(self, days=3):
+        """清理过期文件"""
+        try:
+            # 使用更灵活的时间格式解析
+            current_time = datetime.now()
+            expire_time = current_time - timedelta(days=days)
             
-             
-        
-        
+            # 遍历目录
+            for root, dirs, files in os.walk(self.save_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    try:
+                        # 获取文件修改时间
+                        file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                        if file_time < expire_time:
+                            try:
+                                os.remove(file_path)
+                                logger.info(f"已删除过期文件: {file_path}")
+                            except Exception as e:
+                                logger.error(f"删除文件失败 {file_path}: {str(e)}")
+                    except Exception as e:
+                        logger.error(f"获取文件时间失败 {file_path}: {str(e)}")
+        except Exception as e:
+            logger.error(f"清理过期文件出错: {str(e)}")
