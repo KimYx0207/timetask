@@ -1,2 +1,5 @@
 taskFile
 __pycache__
+# 忽略task_locks目录及其内容
+task_locks/
+*.lock

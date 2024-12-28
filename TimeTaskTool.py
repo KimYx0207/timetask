@@ -162,12 +162,19 @@ class TaskManager(object):
         try:
             current_time = arrow.now()
             for lock_file in os.listdir(lock_dir):
-                file_path = os.path.join(lock_dir, lock_file)
-                file_time_str = lock_file.split('_')[1].replace('.lock', '')
-                file_time = arrow.get(file_time_str, 'YYYY-MM-DD_HH-mm')
-
-                if (current_time - file_time).total_seconds() > 1800:  # 30分钟 = 1800秒
-                    os.remove(file_path)
+                try:
+                    file_path = os.path.join(lock_dir, lock_file)
+                    # 使用文件修改时间而不是文件名来判断过期
+                    file_mtime = arrow.get(os.path.getmtime(file_path))
+                    
+                    if (current_time - file_mtime).total_seconds() > 1800:  # 30分钟 = 1800秒
+                        os.remove(file_path)
+                        if self.debug:
+                            print(f"已删除过期锁文件: {file_path}")
+                except Exception as e:
+                    if self.debug:
+                        print(f"处理锁文件时出错 {lock_file}: {str(e)}")
+                    continue
         except Exception as e:
             print(f"清理过期锁文件时出错: {str(e)}")
 
