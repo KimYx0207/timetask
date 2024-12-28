@@ -508,7 +508,7 @@ class TimeTaskModel:
                 
         #今日消费态优化（默认程序在00:00会将消费态回写，但是若程序被kill,则下次启动的本地缓存未正确回写，此处需要容错）
         if self.is_today_consumed:
-            if self.is_today() and (self.is_nowTime() or self.is_featureTime()):
+            if self.is_today() and (self.is_nowTime()[0] or self.is_featureTime()):
                 self.is_today_consumed = False
                 
         #数组为空
@@ -573,24 +573,25 @@ class TimeTaskModel:
     
     #判断是否当前时间    
     def is_nowTime(self):
-        """判断是否当前时间"""
+        """判断是否当前时间，返回(是否当前时间, 当前时间字符串)"""
         tempTimeStr = self.timeStr
         if not tempTimeStr:
-            return False
+            return False, ""
             
         if tempTimeStr.count(":") == 1:
            tempTimeStr = tempTimeStr + ":00"
         
         #cron   
         if self.isCron_time():
-            return True 
+            current_time = arrow.now().replace(second=0, microsecond=0)
+            return True, current_time.format('HH:mm')
         else:    
             #对比精准到分（忽略秒）
-            current_time = arrow.now().replace(second=0, microsecond=0).time()
-            task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0).time()
-            tempValue = task_time == current_time
-            return tempValue
-            
+            current_time = arrow.now().replace(second=0, microsecond=0)
+            task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0)
+            is_now = task_time.time() == current_time.time()
+            return is_now, current_time.format('HH:mm')
+    
     #判断是否未来时间    
     def is_featureTime(self):
         """判断是否未来时间"""
@@ -939,8 +940,8 @@ class TimeTaskModel:
             except Exception as e:
                 print(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
                 print(f"[{channel_name}通道] 错误详情：", e)
-                return tempRoomId
-            
+                return ""
+
         elif channel_name == "ntchat":
             tempRoomId = ""
             try:
