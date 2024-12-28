@@ -936,11 +936,13 @@ class TimeTaskModel:
                     print(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
                     for room in chatrooms:
                         print(f"  - {room['NickName']}")
-                return tempRoomId
+                        
             except Exception as e:
                 print(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
                 print(f"[{channel_name}通道] 错误详情：", e)
                 return ""
+                
+            return tempRoomId
 
         elif channel_name == "ntchat":
             tempRoomId = ""
@@ -1009,7 +1011,7 @@ class TimeTaskModel:
         else:
             print(f"[{channel_name}通道] 不支持通过群标题获取群ID，当前channel：{channel_name}")
             return ""
-    
+
 class CleanFiles:
     def __init__(self, save_path):
         self.save_path = save_path
