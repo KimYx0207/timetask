@@ -130,7 +130,7 @@ class TimeTask(Plugin):
             model = TimeTaskModel(item, None, False)
             if model.enable and model.taskId and len(model.taskId) > 0:
                 isToday = model.is_today()
-                is_now, _ = model.is_nowTime()
+                is_now = model.is_nowTime()
                 isNowOrFeatureTime = model.is_featureTime() or is_now
                 isCircleFeatureDay = model.is_featureDay()
                 if (isToday and isNowOrFeatureTime) or isCircleFeatureDay:
