@@ -53,7 +53,7 @@ class TaskManager(object):
         load_config()
         self.conf = conf()
         self.debug = self.conf.get("debug", False)
-        print(f"Debug mode is {'on' if self.debug else 'off'}")  
+        logging.debug(f"Debug mode is {'on' if self.debug else 'off'}")  
         #迁移任务的时间
         self.move_historyTask_time = self.conf.get("move_historyTask_time", "04:00:00")
         #默认每秒检测一次

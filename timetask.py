@@ -47,7 +47,7 @@ class TimeTask(Plugin):
     def __init__(self):
         super().__init__()
         self.handlers[Event.ON_HANDLE_CONTEXT] = self.on_handle_context
-        print("[timetask] inited")
+        logging.debug("[timetask] inited")
         load_config()
         self.conf = conf()
         self.taskManager = TaskManager(self.runTimeTask)
@@ -72,7 +72,7 @@ class TimeTask(Plugin):
         # 需要的格式：$time 时间 事件
         if query.startswith(command_prefix):
             # 处理任务
-            print("[TimeTask] 捕获到定时任务:{}".format(query))
+            logging.debug("[TimeTask] 捕获到定时任务:{}".format(query))
             # 移除指令
             # 示例：$time 明天 十点十分 提醒我健身
             content = query.replace(f"{command_prefix}", "", 1).strip()
