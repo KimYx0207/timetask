@@ -385,21 +385,13 @@ class TimeTask(Plugin):
 
         if isGroup:
             # 设置群聊相关信息
-            content_dict["from_user_id"] = model.fromUser_id
-            content_dict["from_user_nickname"] = model.fromUser
+            content_dict["from_user_id"] = other_user_id  # 群ID
+            content_dict["from_user_nickname"] = groupTitle  # 群名称
+            content_dict["actual_user_id"] = model.fromUser_id  # 实际发送者ID
             content_dict["actual_user_nickname"] = model.fromUser  # 实际发送者昵称
-            content_dict["to_user_id"] = other_user_id  # 群UserName
-            content_dict["to_user_nickname"] = groupTitle  # 群名称
-            content_dict["other_user_id"] = other_user_id  # 群UserName
-            content_dict["other_user_nickname"] = groupTitle  # 群名称
-            # 设置session_id为群UserName，确保消息在正确的群中处理
-            content_dict["session_id"] = other_user_id
+            # 设置 session_id 为群名称，以便 summary 插件识别
+            content_dict["session_id"] = groupTitle
             content_dict["is_group"] = True
-            # 确保总结的是群聊消息
-            if "总结" in eventStr:
-                content_dict["chat_scope"] = "group"  # 指定总结范围为群聊
-                content_dict["chat_scope_id"] = other_user_id  # 指定要总结的群UserName
-                print(f"[TimeTask] 设置群聊总结范围：{groupTitle}（UserName: {other_user_id}）")
         else:
             # 设置私聊相关信息
             content_dict["from_user_id"] = model.fromUser_id
