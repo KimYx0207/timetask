@@ -451,27 +451,22 @@ class TimeTaskModel:
         if msg is not None:
             self.fromUser = msg.from_user_nickname
             self.fromUser_id = msg.from_user_id
-            self.toUser = msg.to_user_nickname
-            self.toUser_id = msg.to_user_id
             
             # 修复群组信息记录
             if hasattr(msg, 'is_group') and msg.is_group:
-                # 对于群消息，other_user_nickname是群名称
-                self.other_user_nickname = msg.other_user_nickname  # 群名称
-                
-                # 兼容itchat和ntchat的群ID处理
-                if hasattr(msg, 'other_user_id') and msg.other_user_id:
-                    # ntchat模式，使用other_user_id作为群ID
-                    self.other_user_id = msg.other_user_id
-                else:
-                    # itchat模式，使用群名称作为标识
-                    self.other_user_id = msg.other_user_nickname
-                    
+                # 对于群消息，设置正确的群信息
+                self.toUser = msg.to_user_nickname  # 群名称
+                self.toUser_id = msg.to_user_id    # 群ID
+                self.other_user_nickname = msg.to_user_nickname  # 群名称
+                self.other_user_id = msg.to_user_id  # 群ID
                 self.isGroup = True
             else:
+                # 私聊消息
+                self.toUser = msg.to_user_nickname
+                self.toUser_id = msg.to_user_id
                 self.other_user_nickname = msg.other_user_nickname
                 self.other_user_id = msg.other_user_id
-                self.isGroup = msg.is_group
+                self.isGroup = False
             self.originMsg = str(msg)
         else:
             #通过Item加载
