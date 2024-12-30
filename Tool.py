@@ -454,24 +454,13 @@ class TimeTaskModel:
             
             # 修复群组信息记录
             if hasattr(msg, 'is_group') and msg.is_group:
-                # 对于群消息，设置正确的群信息
-                self.toUser = msg.to_user_nickname  # 群名称
-                self.toUser_id = msg.to_user_id    # 群UserName
-                self.other_user_nickname = msg.to_user_nickname  # 群名称
-                self.other_user_id = msg.to_user_id  # 群UserName
+                # 对于群消息，直接使用消息对象的属性
+                self.toUser = msg.to_user_nickname
+                self.toUser_id = msg.to_user_id
+                self.other_user_nickname = msg.other_user_nickname
+                self.other_user_id = msg.other_user_id
                 self.isGroup = True
-                # 确保群UserName和群名称正确匹配
-                if self.isPerson_makeGrop():
-                    event_str, group_title = self.get_Persion_makeGropTitle_eventStr()
-                    if group_title:
-                        # 获取群的UserName
-                        group_username = self.get_gropID_withGroupTitle(group_title, "wx")
-                        if group_username:
-                            self.toUser = group_title
-                            self.toUser_id = group_username  # 使用UserName
-                            self.other_user_nickname = group_title
-                            self.other_user_id = group_username  # 使用UserName
-                            print(f"[TimeTaskModel] 找到群【{group_title}】的UserName: {group_username}")
+                
             else:
                 # 私聊消息
                 self.toUser = msg.to_user_nickname
