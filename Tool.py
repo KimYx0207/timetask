@@ -936,10 +936,10 @@ class TimeTaskModel:
                     userName = chatroom["UserName"]
                     NickName = chatroom["NickName"]
                     print(f"[{channel_name}通道] 正在检查群：{NickName}")
-                    # 转换为小写进行比较
+                    # 转换为小写进行精确匹配
                     nickName_lower = NickName.lower()
-                    # 使用in而不是完全匹配，这样可以处理包含特殊字符的群名
-                    if groupTitle_lower in nickName_lower or nickName_lower in groupTitle_lower:
+                    # 使用精确匹配（只忽略大小写）
+                    if groupTitle_lower == nickName_lower:
                         tempRoomId = userName
                         print(f"[{channel_name}通道] 找到匹配的群：{NickName}，ID：{userName}")
                         break
@@ -969,10 +969,10 @@ class TimeTaskModel:
                         roomId = item.get("wxid")
                         nickname = item.get("nickname")
                         print(f"[{channel_name}通道] 正在检查群：{nickname}")
-                        # 转换为小写进行比较
+                        # 转换为小写进行精确匹配
                         nickname_lower = nickname.lower()
-                        # 使用模糊匹配来处理特殊字符
-                        if groupTitle_lower in nickname_lower or nickname_lower in groupTitle_lower:
+                        # 使用精确匹配（只忽略大小写）
+                        if groupTitle_lower == nickname_lower:
                             tempRoomId = roomId
                             print(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
@@ -1001,24 +1001,25 @@ class TimeTaskModel:
                         roomId = item.get("conversation_id")
                         nickname = item.get("nickname")
                         print(f"[{channel_name}通道] 正在检查群：{nickname}")
-                        # 转换为小写进行比较
+                        # 转换为小写进行精确匹配
                         nickname_lower = nickname.lower()
-                        # 使用模糊匹配来处理特殊字符
-                        if groupTitle_lower in nickname_lower or nickname_lower in groupTitle_lower:
+                        # 使用精确匹配（只忽略大小写）
+                        if groupTitle_lower == nickname_lower:
                             tempRoomId = roomId
                             print(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
-
+                            
                 if not tempRoomId:
                     print(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
                     for room in rooms:
                         print(f"  - {room.get('nickname')}")
-                return tempRoomId
-
+                        
             except Exception as e:
                 print(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
                 print(f"[{channel_name}通道] 错误详情：", e)
                 return ""
+                
+            return tempRoomId
 
         else:
             print(f"[{channel_name}通道] 不支持通过群标题获取群ID，当前channel：{channel_name}")
