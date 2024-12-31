@@ -121,7 +121,7 @@ class ExcelTool(object):
             if data is None or len(data) == 0:
                 print("[timeTask] 数据库timeTask任务列表数据为空")
             else:
-                # 如果有调试日志需求，可以使用 logging 直接记录，不依赖 self.debug
+                # 使用 logging 直接记录，不依赖 self.debug
                 for row in data:
                     logging.debug(f"读取任务数据: {row}")
             return data
@@ -129,6 +129,7 @@ class ExcelTool(object):
             print("timeTask文件不存在, 读取数据为空")
             self.create_excel()
             return []
+
     # 将历史任务迁移指历史Sheet
     def moveTasksToHistoryExcel(self, tasks, file_name=__file_name, sheet_name=__sheet_name, history_sheet_name=__history_sheet_name):
         # 文件路径
@@ -789,13 +790,13 @@ class TimeTaskModel:
             return ""
             
         if self.debug:
-            logging.debug(f"正在处理时间: {timeStr}")
+            logging.debug(f"正在处理时间: '{timeStr}'")
             
         g_time = ""
+        # 允许一位或两位小时的正则表达式
         pattern1 = r'^\d{1,2}:\d{2}:\d{2}$'
         pattern2 = r'^\d{1,2}:\d{2}$'
 
-        
         try:
             # 如果是cron表达式，直接返回
             if timeStr.startswith("cron["):
@@ -811,11 +812,13 @@ class TimeTaskModel:
                 
             # 尝试解析标准时间格式
             if re.match(pattern1, timeStr):
-                # 如果格式完整，直接使用
-                g_time = timeStr
+                # 如果格式完整，标准化为两位小时
+                dt = datetime.strptime(timeStr, "%H:%M:%S")
+                g_time = dt.strftime("%H:%M:%S")
             elif re.match(pattern2, timeStr):
-                # 如果只有时分，添加秒
-                g_time = f"{timeStr}:00"
+                # 如果只有时分，添加秒并标准化
+                dt = datetime.strptime(timeStr, "%H:%M")
+                g_time = dt.strftime("%H:%M:%S")
             else:
                 # 处理中文时间描述
                 try:
@@ -845,7 +848,7 @@ class TimeTaskModel:
                                 hour = str(int(parts[0]))
                             except:
                                 if self.debug:
-                                    logging.debug(f"无法解析小时: {parts[0]}")
+                                    logging.debug(f"无法解析小时: '{parts[0]}'")
                                 return ""
                                 
                     # 处理分钟
@@ -884,12 +887,28 @@ class TimeTaskModel:
                     g_time = f"{hour}:{minute}:{second}"
                     
                     if self.debug:
-                        logging.debug(f"转换中文时间: {timeStr} -> {g_time}")
+                        logging.debug(f"转换中文时间: '{timeStr}' -> '{g_time}'")
                     
                 except Exception as e:
                     if self.debug:
                         logging.debug(f"解析中文时间失败: {str(e)}")
                     return ""
+            
+            # 验证最终时间格式
+            if re.match(pattern1, g_time):
+                if self.debug:
+                    logging.debug(f"最终格式化时间: '{g_time}'")
+                return g_time
+            else:
+                if self.debug:
+                    logging.debug(f"格式化时间不符合预期: '{g_time}'")
+                return ""
+            
+        except Exception as e:
+            if self.debug:
+                logging.debug(f"时间转换错误: {str(e)}")
+            return ""
+
             
             # 验证最终时间格式
             if re.match(pattern1, g_time):
