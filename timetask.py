@@ -1,692 +1,1249 @@
-# encoding:utf-8
-import plugins
-from bridge.context import ContextType, Context
-from bridge.reply import Reply, ReplyType
-from channel.chat_message import ChatMessage
-import logging
-from plugins import *
-from plugins.timetask.TimeTaskTool import TaskManager
-from plugins.timetask.config import conf, load_config
-from plugins.timetask.Tool import TimeTaskModel
+#!/usr/bin/python
+# -*- coding: UTF-8 -*-
+
+import os
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import NamedStyle
+import hashlib
+import base64
+import arrow
+import re
+from typing import List
+import time
+from datetime import datetime, timedelta
 from lib import itchat
 from lib.itchat.content import *
-import re
-import arrow
-from plugins.timetask.Tool import ExcelTool
-from bridge.bridge import Bridge
-import config as RobotConfig
-import requests
-import io
-import time
-import gc
-from channel import channel_factory
-from io import BytesIO
-import os
-from enum import Enum  # 确保 Enum 已经被导入
+from channel.chat_message import ChatMessage
+from croniter import croniter
+import threading
+import logging
 
-class TimeTaskRemindType(Enum):
-    NO_Task = 1           # 无任务
-    Add_Success = 2       # 添加任务成功
-    Add_Failed = 3        # 添加任务失败
-    Cancel_Success = 4    # 取消任务成功
-    Cancel_Failed = 5     # 取消任务失败
-    TaskList_Success = 6  # 查看任务列表成功
-    TaskList_Failed = 7   # 查看任务列表失败
+# 日志配置
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-@plugins.register(
-    name="timetask",
-    desire_priority=950,
-    hidden=True,
-    desc="定时任务系统，可定时处理事件",
-    version="2.8",
-    author="haikerwang",
-)
-class TimeTask(Plugin):
-    _initialized = False  # 类变量，标记是否已初始化
+try:
+    from channel.wechatnt.ntchat_channel import wechatnt
+except Exception as e:
+    logger.error(f"未安装ntchat: {e}")
 
-    def __init__(self):
-        super().__init__()
-        self.handlers[Event.ON_HANDLE_CONTEXT] = self.on_handle_context
-        logging.debug("[timetask] inited")
-        load_config()
-        self.conf = conf()
-        self.taskManager = TaskManager(self.runTimeTask)
-        self.channel = None
+try:
+    from channel.wework.run import wework
+except Exception as e:
+    logger.error(f"未安装wework: {e}")
 
-    def on_handle_context(self, e_context: EventContext):
-        if self.channel is None:
-            self.channel = e_context["channel"]
-            logging.debug(f"本次的channel为：{self.channel}")
+class ExcelTool(object):
+    __file_name = "timeTask.xlsx"
+    __sheet_name = "定时任务"
+    __history_sheet_name = "历史任务"
+    __dir_name = "taskFile"
+    
+    # 新建工作簿
+    def create_excel(self, file_name: str = __file_name, sheet_name=__sheet_name, history_sheet_name=__history_sheet_name):
+        # 文件路径
+        workbook_file_path = self.get_file_path(file_name)
 
-        if e_context["context"].type not in [
-            ContextType.TEXT,
-        ]:
-            return
-
-        # 查询内容
-        query = e_context["context"].content
-        logging.info("定时任务的输入信息为:{}".format(query))
-        # 指令前缀
-        command_prefix = self.conf.get("command_prefix", "$time")
-
-        # 需要的格式：$time 时间 事件
-        if query.startswith(command_prefix):
-            # 处理任务
-            logging.debug("[TimeTask] 捕获到定时任务:{}".format(query))
-            # 移除指令
-            # 示例：$time 明天 十点十分 提醒我健身
-            content = query.replace(f"{command_prefix}", "", 1).strip()
-            self.deal_timeTask(content, e_context)
-    # 处理时间任务
-    def deal_timeTask(self, content, e_context: EventContext):
-        if content.startswith("取消任务"):
-            self.cancel_timeTask(content, e_context)
-        elif content.startswith("任务列表"):
-            self.get_timeTaskList(content, e_context)
-        else:
-            self.add_timeTask(content, e_context)
-
-    # 取消任务
-    def cancel_timeTask(self, content, e_context: EventContext):
-        # 分割
-        wordsArray = content.split(" ")
-        if len(wordsArray) < 2:
-            reply_text = "⏰取消任务指令格式异常😭，请使用格式：$time 取消任务 任务编号" + self.get_default_remind(TimeTaskRemindType.Cancel_Failed)
-            self.replay_use_default(reply_text, e_context)
-            return
-        # 任务编号
-        taskId = wordsArray[1]
-        isExist, taskModel = ExcelTool().write_columnValue_withTaskId_toExcel(taskId, 2, "0")
-        taskContent = "未知"
-        if taskModel:
-            taskContent = f"{taskModel.circleTimeStr} {taskModel.timeStr} {taskModel.eventStr}"
-            if taskModel.isCron_time():
-                taskContent = f"{taskModel.circleTimeStr} {taskModel.eventStr}"
-        # 回消息
-        reply_text = ""
-        tempStr = ""
-        # 文案
-        if isExist:
-            tempStr = self.get_default_remind(TimeTaskRemindType.Cancel_Success)
-            reply_text = "⏰定时任务，取消成功~\n" + "【任务编号】：" + taskId + "\n" + "【任务详情】：" + taskContent
-        else:
-            tempStr = self.get_default_remind(TimeTaskRemindType.Cancel_Failed)
-            reply_text = "⏰定时任务，取消失败😭，未找到任务编号，请核查\n" + "【任务编号】：" + taskId
-
-        # 拼接提示
-        reply_text = reply_text + tempStr
-        # 回复
-        self.replay_use_default(reply_text, e_context)  
-
-        # 刷新内存列表
-        self.taskManager.refreshDataFromExcel()
-
-    # 获取任务列表
-    def get_timeTaskList(self, content, e_context: EventContext):
-        # 任务列表
-        taskArray = ExcelTool().readExcel()
-        tempArray = []
-        for item in taskArray:
-            model = TimeTaskModel(item, None, False)
-            if model.enable and model.taskId and len(model.taskId) > 0:
-                isToday = model.is_today()
-                is_now = model.is_nowTime()
-                isNowOrFeatureTime = model.is_featureTime() or is_now
-                isCircleFeatureDay = model.is_featureDay()
-                if (isToday and isNowOrFeatureTime) or isCircleFeatureDay:
-                    tempArray.append(model)
-
-        # 回消息
-        reply_text = ""
-        tempStr = ""
-        if len(tempArray) <= 0:
-            tempStr = self.get_default_remind(TimeTaskRemindType.NO_Task)
-            reply_text = "⏰当前无待执行的任务列表"
-        else:
-            tempStr = self.get_default_remind(TimeTaskRemindType.TaskList_Success)
-            reply_text = "⏰定时任务列表如下：\n\n"
-            # 根据时间排序
-            sorted_times = sorted(tempArray, key=lambda x: self.custom_sort(x.timeStr))
-            for model in sorted_times:
-                taskModel : TimeTaskModel = model
-                tempTimeStr = f"{taskModel.circleTimeStr} {taskModel.timeStr}"
-                if taskModel.isCron_time():
-                    tempTimeStr = f"{taskModel.circleTimeStr}"
-                reply_text = reply_text + f"【{taskModel.taskId}】@{taskModel.fromUser}: {tempTimeStr} {taskModel.eventStr}\n"   
-            # 移除最后一个换行    
-            reply_text = reply_text.rstrip('\n')
-
-        # 拼接提示
-        reply_text = reply_text + tempStr
-
-        # 回复
-        self.replay_use_default(reply_text, e_context)    
-
-    # 添加任务
-    def add_timeTask(self, content, e_context: EventContext):
-        # 失败时，默认提示
-        defaultErrorMsg = "⏰定时任务指令格式异常😭，请核查！" + self.get_default_remind(TimeTaskRemindType.Add_Failed)
-
-        # 周期、时间、事件
-        circleStr, timeStr, eventStr = self.get_timeInfo(content)
-
-        # 容错
-        if len(circleStr) <= 0 or len(timeStr) <= 0 or len(eventStr) <= 0 :
-            self.replay_use_default(defaultErrorMsg, e_context)
-            return
-
-        # 0：ID - 唯一ID (自动生成，无需填写) 
-        # 1：是否可用 - 0/1，0=不可用，1=可用
-        # 2：时间信息 - 格式为：HH:mm:ss
-        # 3：轮询信息 - 格式为：每天、每周X、YYYY-MM-DD
-        # 4：消息内容 - 消息内容
-        msg: ChatMessage = e_context["context"]["msg"]
-        taskInfo = ("",
-                    "1", 
-                    timeStr, 
-                    circleStr, 
-                    eventStr, 
-                    msg)
-        # model
-        taskModel = TimeTaskModel(taskInfo, msg, True)
-        if not taskModel.isCron_time():
-            # 时间转换错误
-            if len(taskModel.timeStr) <= 0 or len(taskModel.circleTimeStr) <= 0:
-                self.replay_use_default(defaultErrorMsg, e_context)
-                return
-        else:
-            # cron表达式格式错误
-            if not taskModel.isValid_Cron_time():
-               self.replay_use_default(defaultErrorMsg, e_context)
-               return
-
-        # 私人指定为群聊任务
-        if taskModel.isPerson_makeGrop():
-            newEvent, groupTitle = taskModel.get_Persion_makeGropTitle_eventStr()
-            if len(groupTitle) <= 0 or len(newEvent) <= 0 :
-               self.replay_use_default(defaultErrorMsg, e_context)
-               return
-            else:
-                channel_name = RobotConfig.conf().get("channel_type", "wx")
-                groupId = taskModel.get_gropID_withGroupTitle(groupTitle , channel_name)
-                if len(groupId) <= 0:
-                    defaultErrorMsg = f"⏰定时任务指令格式异常😭，未找到群名为【{groupTitle}】的群聊，请核查！" + self.get_default_remind(TimeTaskRemindType.Add_Failed)
-                    self.replay_use_default(defaultErrorMsg, e_context)
-                    return
-
-        # task入库
-        taskId = self.taskManager.addTask(taskModel)
-        # 回消息
-        reply_text = ""
-        tempStr = ""
-        if len(taskId) > 0:
-            tempStr = self.get_default_remind(TimeTaskRemindType.Add_Success)
-            taskStr = ""
-            if taskModel.isCron_time():
-                taskStr = f"{circleStr} {taskModel.eventStr}"
-            else:
-                taskStr = f"{circleStr} {timeStr} {taskModel.eventStr}"
-            reply_text = f"恭喜你，⏰定时任务已创建成功🎉~\n【任务编号】：{taskId}\n【任务详情】：{taskStr}"
-        else:
-            tempStr = self.get_default_remind(TimeTaskRemindType.Add_Failed)
-            reply_text = f"sorry，⏰定时任务创建失败😭"
-
-        # 拼接提示
-        reply_text = reply_text + tempStr
-
-        # 回复
-        self.replay_use_default(reply_text, e_context)
-
-    # 获取时间信息
-    def get_timeInfo(self, content):
-        # 周期
-        circleStr = ""
-        # 时间
-        timeStr = ""
-        # 事件
-        eventStr = ""
-
-        # 时间格式判定
-        if content.startswith("cron[") or content.startswith("Cron[") :
-            # cron表达式； 格式示例："cron[0,30 14 * 3 3] 吃饭"
-            # 找到第一个 "]"
-            cron_end_index = content.find("]")
-            # 找到
-            if cron_end_index != -1:
-                # 分割字符串为 A 和 B
-                corn_string = content[:cron_end_index+1]
-                eventStr :str = content[cron_end_index + 1:]
-                eventStr = eventStr.strip()
-                circleStr = corn_string
-                timeStr = corn_string
-            else:
-                print("cron表达式 格式异常！")
-        else:  
-            # 分割
-            wordsArray = content.split(" ")
-            if len(wordsArray) <= 2:
-                logging.info("指令格式异常，请核查")
-            else:
-                # 指令解析
-                # 周期
-                circleStr = wordsArray[0]
-                # 时间
-                timeStr = wordsArray[1]
-                # 检查 timeStr 是否缺少秒，如果是，则补充 ':00'
-                if ':' in timeStr and timeStr.count(':') == 1:
-                    timeStr += ':00'
-                # 事件
-                eventStr = ' '.join(map(str, wordsArray[2:])).strip()
-
-        return circleStr, timeStr, eventStr
-
-    # 使用默认的回复
-    def replay_use_default(self, reply_message, e_context: EventContext):
-        # 修改回复内容以包含双换行符
-        reply_message = reply_message.replace("\\n", "\n\n")
-
-        # 回复内容
-        reply = Reply()
-        reply.type = ReplyType.TEXT
-        reply.content = reply_message
-        e_context["reply"] = reply
-        e_context.action = EventAction.BREAK_PASS  # 事件结束，并跳过处理context的默认逻辑
-
-    # 使用自定义回复
-    def replay_use_custom(self, model: TimeTaskModel, reply_content, replyType: ReplyType, context: Context, retry_cnt=0):
-        try:
-            reply = Reply()
-            reply.type = replyType
-            # 打印 reply_content 的类型
-            print(f"reply_content type before processing: {type(reply_content)}")
+        # 创建Excel
+        if not os.path.exists(workbook_file_path):
+            wb = Workbook()
+            column_list_first = ['A', 'B', 'C', 'D', 'L']
+            width_value_first = 20
+            column_list_two = ['E', 'F', 'H', 'J']
+            width_value_two = 40
+            column_list_three = ['G', 'I', 'K']
+            width_value_three = 70
+            width_value_four = 600
             
-            # 处理不同类型的回复内容
-            if replyType == ReplyType.IMAGE:
-                if isinstance(reply_content, BytesIO):
-                    # BytesIO 类型，保存为图片文件
-                    temp_dir = "tmp"
-                    if not os.path.exists(temp_dir):
-                        os.makedirs(temp_dir)
-                    temp_filename = f"{temp_dir}/{arrow.now().format('YYYYMMDDHHmmss')}.png"
-                    
-                    # 将 BytesIO 内容写入文件
-                    with open(temp_filename, 'wb') as f:
-                        f.write(reply_content.getvalue())
-                    
-                    reply.content = temp_filename
-                    print(f"Saved image to {temp_filename}")
-                elif isinstance(reply_content, str):
-                    # 如果是字符串路径，直接使用
-                    reply.content = reply_content
-                    print(f"reply_content is a file path: {reply_content}")
+            # 设置日期格式
+            date_format = NamedStyle(name='date_format')
+            date_format.number_format = 'YYYY-MM-DD'
+
+            # sheet1
+            ws = wb.create_sheet(sheet_name, 0)
+            # 类型处理
+            for column in ws.columns:
+                # 日期格式
+                if column[0].column_letter == "D":
+                    for cell in column:
+                        cell.style = date_format
+                # 字符串        
                 else:
-                    print(f"Unsupported image content type: {type(reply_content)}")
-                    return
-
+                    for cell in column:
+                        cell.number_format = '@'
+            
+            # 宽度处理 
+            for column in column_list_first:
+                ws.column_dimensions[column].width = width_value_first
+            for column in column_list_two:
+                ws.column_dimensions[column].width = width_value_two
+            for column in column_list_three:
+                ws.column_dimensions[column].width = width_value_three
+            ws.column_dimensions["M"].width = width_value_four 
+              
+            # sheet2
+            ws1 = wb.create_sheet(history_sheet_name, 1)
+            # 类型处理 - 设置为字符串
+            for column in ws1.columns:
+                for cell in column:
+                    cell.number_format = '@'
+                    
+            # 宽度处理        
+            for column in column_list_first:
+                ws1.column_dimensions[column].width = width_value_first
+            for column in column_list_two:
+                ws1.column_dimensions[column].width = width_value_two
+            ws1.column_dimensions["M"].width = width_value_three     
+                    
+            wb.save(workbook_file_path)
+            logger.info(f"定时Excel创建成功，文件路径为：{workbook_file_path}")
+            
+        else:
+            wb = load_workbook(workbook_file_path)
+            if not history_sheet_name in wb.sheetnames:
+                wb.create_sheet(history_sheet_name, 1)
+                wb.save(workbook_file_path)
+                logger.info(f"创建sheet: {history_sheet_name}")
             else:
-                # 文字消息内容，处理换行符
-                reply.content = reply_content.replace('\\n', '\n')
+                logger.info("timeTask文件已存在, 无需创建")
+                
 
-            # 打印最终 reply.content 的类型
-            print(f"reply.content type after processing: {type(reply.content)}")
+    # 读取内容, 返回元组列表
+    def readExcel(self, file_name=__file_name, sheet_name=__sheet_name):
+        # 文件路径
+        workbook_file_path = self.get_file_path(file_name)
+        
+        # 文件存在
+        if os.path.exists(workbook_file_path):
+            wb = load_workbook(workbook_file_path)
+            ws = wb[sheet_name]
+            data = list(ws.values)
+            if not data or len(data) == 0:
+                logger.warning("[timeTask] 数据库timeTask任务列表数据为空")
+            return data
+        else:
+            logger.warning("timeTask文件不存在, 读取数据为空")
+            self.create_excel()
+            return []
+        
+    # 将历史任务迁移到历史Sheet
+    def moveTasksToHistoryExcel(self, tasks, file_name=__file_name, sheet_name=__sheet_name, history_sheet_name=__history_sheet_name):
+        # 文件路径
+        workbook_file_path = self.get_file_path(file_name)
+        
+        # 文件存在
+        if os.path.exists(workbook_file_path):
+            wb = load_workbook(workbook_file_path)
+            ws = wb[sheet_name]
+            data = list(ws.values)
+            
+            # 需要删除的行号
+            rows_to_delete = []
+            # 遍历任务列表
+            for i, item in enumerate(data):
+                # 任务ID
+                taskId = item[0]
+                for hisItem in tasks:
+                    # 历史任务ID
+                    his_taskId = hisItem[0]
+                    if taskId == his_taskId:
+                        rows_to_delete.append(i + 1)
+            
+            # 排序删除行
+            sorted_rows_to_delete = sorted(rows_to_delete, reverse=True)
+                        
+            # 删除行
+            for dx in sorted_rows_to_delete:
+                ws.delete_rows(dx)
+                
+            # 保存            
+            wb.save(workbook_file_path)
+            
+            hisIds = []
+            # 添加到历史列表
+            for t in tasks:
+                his_taskId = t[0]
+                hisIds.append(his_taskId)
+                self.addItemToExcel(t, file_name, history_sheet_name)     
+                
+            logger.info(f"将任务Sheet({sheet_name})中的 过期任务 迁移到 -> 历史Sheet({history_sheet_name}) 完毕~ \n 迁移的任务ID为：{hisIds}")            
+            
+            # 返回最新数据
+            return self.readExcel()  
+        else:
+            logger.warning("timeTask文件不存在, 数据为空")
+            self.create_excel()
+            return []
 
-            # 使用配置的 channel 发送消息
-            channel_name = RobotConfig.conf().get("channel_type", "wx")
-            channel = channel_factory.create_channel(channel_name)
-            channel.send(reply, context)
-            print("Message sent successfully:", reply.content)  
+    # 写入列表，返回元组列表
+    def addItemToExcel(self, item, file_name=__file_name, sheet_name=__sheet_name):
+        # 文件路径
+        workbook_file_path = self.get_file_path(file_name)
+        
+        # 如果文件存在, 就执行
+        if os.path.exists(workbook_file_path):
+            wb = load_workbook(workbook_file_path)
+            ws = wb[sheet_name]
+            ws.append(item)
+            wb.save(workbook_file_path)
+            
+            # 列表
+            data = list(ws.values)
+            return data
+        else:
+            logger.warning("timeTask文件不存在, 添加数据失败")
+            self.create_excel()
+            return []
+        
+        
+    # 写入数据
+    def write_columnValue_withTaskId_toExcel(self, taskId, column: int, columnValue: str,  file_name=__file_name, sheet_name=__sheet_name):
+        # 读取数据
+        data = self.readExcel(file_name, sheet_name)
+        if len(data) > 0:
+            # 表格对象
+            workbook_file_path = self.get_file_path(file_name)
+            wb = load_workbook(workbook_file_path)
+            ws = wb[sheet_name]
+            isExist = False
+            taskContent = None
+            # 遍历
+            for index, hisItem in enumerate(data):
+                model = TimeTaskModel(hisItem, None, False)
+                # ID是否相同
+                if model.taskId == taskId:
+                    # 置为已消费：即0
+                    ws.cell(index + 1, column).value = columnValue
+                    isExist = True
+                    taskContent = model
+                    
+            if isExist: 
+                # 保存
+                wb.save(workbook_file_path)
+            
+            return isExist, taskContent
+        else:
+            logger.warning("timeTask文件无数据, 消费数据失败")
+            return False, None
+    
+    
+    # 获取文件路径      
+    def get_file_path(self, file_name=__file_name):
+        # 文件路径
+        current_file = os.path.abspath(__file__)
+        current_dir = os.path.dirname(current_file)
+        workbook_file_path = os.path.join(current_dir, self.__dir_name, file_name)
+        
+        # 工作簿当前目录
+        workbook_dir_path = os.path.dirname(workbook_file_path)
+        # 创建目录
+        if not os.path.exists(workbook_dir_path):
+            # 创建工作簿路径, makedirs可以创建级联路径
+            os.makedirs(workbook_dir_path)
+            
+        return workbook_file_path
+        
+    # 更新用户ID  
+    def update_userId(self, file_name=__file_name, sheet_name=__sheet_name):
+        # 是否重新登录了
+        datas = self.readExcel(file_name, sheet_name)
+        
+        if len(datas) <= 0:
+            return
+            
+        # 模型数组
+        tempArray : List[TimeTaskModel] = []
+        # 原始数据
+        for item in datas:
+            model = TimeTaskModel(item, None, False)
+            tempArray.append(model)
+            
+        # id字典数组：将相同目标人的ID聚合为一个数组
+        idsDic = {}
+        groupIdsDic = {}
+        for model in tempArray:
+            # 目标用户名称
+            target_name = model.other_user_nickname
+            # 群聊
+            if model.isGroup:
+                if target_name not in groupIdsDic:
+                    groupIdsDic[target_name] = [model]
+                else:
+                    groupIdsDic[target_name].append(model)
+            else:
+                # 好友
+                if target_name not in idsDic:
+                    idsDic[target_name] = [model]
+                else:
+                    idsDic[target_name].append(model)
+        
+        # 待更新的ID数组
+        if len(idsDic) <= 0 and len(groupIdsDic) <= 0:
+            return
+        
+        # 原始ID ： 新ID
+        oldAndNewIDDic = self.getNewId(idsDic, groupIdsDic)
+        if len(oldAndNewIDDic) <= 0:
+            return
+            
+        # 更新列表数据
+        workbook_file_path = self.get_file_path(file_name)
+        wb = load_workbook(workbook_file_path)
+        ws = wb[sheet_name]
+        excel_data = list(ws.values)
+        # 机器人ID
+        robot_user_id = itchat.instance.storageClass.userName
+        # 遍历任务列表 - 更新数据
+        for index, item in enumerate(excel_data):
+            model = TimeTaskModel(item, None, False)
+            # 目标用户ID
+            oldId = model.other_user_id
+            newId = oldAndNewIDDic.get(oldId)
+            # 找到了
+            if newId is not None and len(newId) > 0:
+                model.other_user_id = newId
+                # 更新ID
+                # from
+                ws.cell(index + 1, 7).value = newId
+                # to
+                ws.cell(index + 1, 9).value = robot_user_id
+                # other
+                ws.cell(index + 1, 11).value = newId
+                # 替换原始信息中的ID
+                # 旧的机器人ID
+                old_robot_userId = model.toUser_id
+                # 原始消息体
+                originStr = model.originMsg
+                # 替换旧的目标ID
+                newString = originStr.replace(oldId, newId)
+                # 替换机器人ID
+                newString = newString.replace(old_robot_userId, robot_user_id)
+                ws.cell(index + 1, 13).value = newString
+                # 等待写入
+                time.sleep(0.05)
+                      
+        # 保存            
+        wb.save(workbook_file_path)
+        
+                
+                
+    # 获取新的用户ID  
+    def getNewId(self, idsDic, groupIdsDic):
+        oldAndNewIDDic = {}
+        # 好友  
+        friends = []
+        # 群聊
+        chatrooms = []
+        
+        # 好友处理
+        if len(idsDic) > 0:   
+            try:
+                # 获取好友列表
+                friends = itchat.get_friends(update=True)[0:]
+            except ZeroDivisionError:
+                logger.error("好友列表, 错误发生")
+            
+            # 获取好友 -（id组装 旧 ： 新）
+            for friend in friends:
+                # id
+                userName = friend["UserName"]
+                NickName = friend["NickName"]
+                modelArray = idsDic.get(NickName)
+                # 找到了好友
+                if modelArray is not None and len(modelArray) > 0:
+                    model : TimeTaskModel = modelArray[0]
+                    oldId = model.other_user_id
+                    if oldId != userName:
+                        oldAndNewIDDic[oldId] = userName    
+         
+        # 群聊处理  
+        if len(groupIdsDic) > 0:          
+            try:
+                # 获取群聊 （id组装 旧 ：新）   
+                chatrooms = itchat.get_chatrooms()
+            except ZeroDivisionError:
+                logger.error("群聊列表, 错误发生")
+            
+            # 获取群聊 - 旧 ： 新
+            for chatroom in chatrooms:
+                # id
+                userName = chatroom["UserName"]
+                NickName = chatroom["NickName"]
+                modelArray = groupIdsDic.get(NickName)
+                # 找到了群聊
+                if modelArray is not None and len(modelArray) > 0:
+                    model : TimeTaskModel = modelArray[0]
+                    oldId = model.other_user_id
+                    if oldId != userName:
+                        oldAndNewIDDic[oldId] = userName
+                       
+        return oldAndNewIDDic         
+        
+
+# Task模型        
+class TimeTaskModel:
+    # Item数据排序
+    # 0：ID - 唯一ID (自动生成，无需填写)
+    # 1：是否可用 - 0/1，0=不可用，1=可用
+    # 2：时间信息 - 格式为：HH:mm:ss 或 HH:mm
+    # 3：轮询信息 - 格式为：每天、每周N、YYYY-MM-DD 或 cron表达式
+    # 4：消息内容 - 消息内容
+    # 5：fromUser - 来源user
+    # 6：fromUserID - 来源user ID
+    # 7：toUser - 发送给的user
+    # 8：toUser id - 来源user ID
+    # 9：other_user_nickname - Other名称
+    # 10：other_user_id - otherID
+    # 11：isGroup - 0/1，是否群聊； 0=否，1=是
+    # 12：原始内容 - 原始的消息体
+    # 13：今天是否被消息 - 每天会在凌晨自动重置
+    def __init__(self, item, msg:ChatMessage, isNeedFormat: bool, isNeedCalculateCron = False):
+        self.debug = False
+        self.isNeedCalculateCron = isNeedCalculateCron
+        self.taskId = item[0]
+        self.enable = item[1] == "1"
+        
+        # 是否今日已被消费
+        self.is_today_consumed = False
+        
+        # 时间信息
+        timeValue = item[2]
+        tempTimeStr = ""
+        if isinstance(timeValue, datetime):
+            # 变量是 datetime.time 类型（Excel修改后，openpyxl会自动转换为该类型，本次做修正）
+            tempTimeStr = timeValue.strftime("%H:%M:%S")
+        elif isinstance(timeValue, str):
+            tempTimeStr = timeValue
+        else:
+            # 其他类型
+            logger.warning("其他类型时间，暂不支持")
+        self.timeStr = tempTimeStr
+        
+        # 日期
+        dayValue = item[3]
+        tempDayStr = ""
+        if isinstance(dayValue, datetime):
+            # 变量是 datetime.datetime 类型（Excel修改后，openpyxl会自动转换为该类型，本次做修正）
+            tempDayStr = dayValue.strftime("%Y-%m-%d")
+        elif isinstance(dayValue, str):
+            tempDayStr = dayValue
+        else:
+            # 其他类型
+            logger.warning("其他类型时间，暂不支持")
+        self.circleTimeStr = tempDayStr
+        
+        # 事件
+        self.eventStr = item[4]
+        
+        # 通过对象加载
+        if msg is not None:
+            self.fromUser = msg.from_user_nickname
+            self.fromUser_id = msg.from_user_id
+            
+            # 修复群组信息记录 - 合并群信息
+            if hasattr(msg, 'is_group') and msg.is_group:
+                # 对于群消息,将所有群信息合并成一条
+                group_info = []
+                if msg.to_user_nickname:
+                    group_info.append(msg.to_user_nickname)
+                if msg.other_user_nickname:
+                    group_info.append(msg.other_user_nickname)
+                self.toUser = " | ".join(group_info)  # 使用|分隔不同群名
+                self.toUser_id = msg.to_user_id
+                self.other_user_nickname = ""  # 清空, 因为已经合并到toUser中
+                self.other_user_id = msg.other_user_id
+                self.isGroup = True
+            else:
+                # 私聊消息保持不变
+                self.toUser = msg.to_user_nickname
+                self.toUser_id = msg.to_user_id
+                self.other_user_nickname = msg.other_user_nickname
+                self.other_user_id = msg.other_user_id
+                self.isGroup = False
+            self.originMsg = str(msg)
+        else:
+            # 通过Item加载
+            self.fromUser = item[5]
+            self.fromUser_id = item[6]
+            self.toUser = item[7]
+            self.toUser_id = item[8]
+            self.other_user_nickname = item[9]
+            self.other_user_id = item[10]
+            self.isGroup = item[11] == "1"
+            self.originMsg = item[12]
+            if len(item) > 13:
+                self.is_today_consumed = item[13] == "1" 
+        
+        # 容错
+        emptStr = ""
+        self.fromUser = emptStr if self.fromUser is None else self.fromUser
+        self.fromUser_id = emptStr if self.fromUser_id is None else self.fromUser_id
+        self.toUser = emptStr if self.toUser is None else self.toUser
+        self.toUser_id = emptStr if self.toUser_id is None else self.toUser_id
+        self.other_user_nickname = emptStr if self.other_user_nickname is None else self.other_user_nickname
+        self.other_user_id = emptStr if self.other_user_id is None else self.other_user_id
+        self.isGroup = False if self.isGroup is None else self.isGroup
+        self.originMsg = emptStr if self.originMsg is None else self.originMsg   
+        
+        # cron表达式
+        self.cron_expression = self.get_cron_expression()
+        
+        # 需要处理格式
+        if isNeedFormat:
+            # 计算内容ID (使用不可变的内容计算，去除元素：enable 会变、originMsg中有时间戳)
+            new_tuple = (self.timeStr, self.circleTimeStr, self.eventStr, self.fromUser, 
+                         self.toUser, self.other_user_id, "1" if self.isGroup else "0")
+            temp_content = '_'.join(new_tuple)
+            short_id = self.get_short_id(temp_content)
+            if self.debug:
+                logging.debug(f'任务内容：{temp_content}，唯一ID：{short_id}')
+            self.taskId = short_id
+            
+            # 周期、time
+            # cron表达式
+            if self.isCron_time():
+                if self.debug:
+                    logging.debug("使用cron表达式")
+                
+            else:
+                # 正常的周期、时间
+                g_circle = self.get_cicleDay(self.circleTimeStr)
+                g_time = self.get_time(self.timeStr)
+                self.timeStr = g_time
+                self.circleTimeStr = g_circle
+        
+        # 今日消费态优化
+        if self.is_today_consumed:
+            # 每天凌晨自动重置消费状态
+            now = datetime.now()
+            if now.hour == 0 and now.minute == 0:
+                self.is_today_consumed = False
+            # 如果是今天的任务且时间未到, 也重置消费状态    
+            elif self.is_today() and (self.is_nowTime()[0] or self.is_featureTime()):
+                self.is_today_consumed = False
+                
+        # 数组为空
+        self.cron_today_times = []
+        
+        # 计算cron今天的时间点
+        if self.isNeedCalculateCron and self.isCron_time() and self.enable:
+            # 创建子线程
+            t = threading.Thread(target=self.get_todayCron_times)
+            t.setDaemon(True) 
+            t.start() 
+     
+    # 获取今天cron时间  
+    def get_todayCron_times(self):
+        if not self.enable:
+              return
+          
+        self.cron_today_times = []
+        # 校验cron格式
+        if self.isValid_Cron_time():
+            # 获取当前时间（忽略秒数）
+            current_time = arrow.now().replace(second=0, microsecond=0)
+            # 创建一个 croniter 对象
+            cron = croniter(self.cron_expression, current_time.datetime)
+            next_time = cron.get_next(datetime)
+            while next_time.date() == current_time.date():
+                # 记录时间（时：分）
+                next_time_hour_minut = next_time.strftime('%H:%M')
+                self.cron_today_times.append(next_time_hour_minut)
+                next_time = cron.get_next(datetime)
+            
+            # 打印满足今天的cron的时间点    
+            logger.info(f"cron表达式为：{self.cron_expression}, 满足今天的时间节点为：{self.cron_today_times}")
+        
+    # 获取格式化后的Item
+    def get_formatItem(self):
+        temp_item = (
+            self.taskId,
+            "1" if self.enable else "0",
+            self.timeStr,
+            self.circleTimeStr,
+            self.eventStr,
+            self.fromUser,
+            self.fromUser_id,
+            self.toUser,
+            self.toUser_id,
+            self.other_user_nickname,
+            self.other_user_id,
+            "1" if self.isGroup else "0",
+            self.originMsg,
+            "1" if self.is_today_consumed else "0"
+        ) 
+        return temp_item
+        
+    # 计算唯一ID        
+    def get_short_id(self, string):
+        # 使用 MD5 哈希算法计算字符串的哈希值
+        hash_value = hashlib.md5(string.encode()).digest()
+    
+        # 将哈希值转换为一个 64 进制的短字符串
+        short_id = base64.urlsafe_b64encode(hash_value)[:8].decode()
+        return short_id
+    
+    
+    # 判断是否当前时间    
+    def is_nowTime(self):
+        """判断是否当前时间，返回(是否当前时间, 当前时间字符串)"""
+        try:
+            tempTimeStr = self.timeStr
+            if not tempTimeStr:
+                if self.debug:
+                    logging.debug("时间字符串为空")
+                return False, ""
+                
+            # cron表达式处理
+            if self.isCron_time():
+                current_time = arrow.now().format('HH:mm')
+                # 检查是否在今天的执行时间列表中
+                return current_time in self.cron_today_times, current_time
+                
+            # 处理标准时间格式
+            if tempTimeStr.count(":") == 1:
+                tempTimeStr = tempTimeStr + ":00"
+            elif tempTimeStr.count(":") != 2:
+                if self.debug:
+                    logging.debug(f"时间格式错误: {tempTimeStr}")
+                return False, ""
+                
+            try:
+                # 对比精准到分（忽略秒）
+                current_time = arrow.now().replace(second=0, microsecond=0)
+                task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0)
+                is_now = task_time.time() == current_time.time()
+                return is_now, current_time.format('HH:mm')
+                
+            except Exception as e:
+                if self.debug:
+                    logging.debug(f"时间比较发生错误: {str(e)}")
+                return False, ""
+                
+        except Exception as e:
+            if self.debug:
+                logging.debug(f"判断当前时间发生错误: {str(e)}")
+            return False, ""
+    
+    # 判断是否未来时间    
+    def is_featureTime(self):
+        """判断是否未来时间"""
+        tempTimeStr = self.timeStr
+        if not tempTimeStr:
+            return False
+            
+        if tempTimeStr.count(":") == 1:
+           tempTimeStr = tempTimeStr + ":00"
+        
+        # cron   
+        if self.isCron_time():
+            return True 
+        else:    
+            # 对比精准到分（忽略秒）
+            current_time = arrow.now().replace(second=0, microsecond=0).time()
+            try:
+                task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0).time()
+            except Exception as e:
+                if self.debug:
+                    logging.debug(f"解析任务时间失败: {tempTimeStr}, 错误: {str(e)}")
+                return False
+            return task_time > current_time 
+        
+    # 判断是否未来日期    
+    def is_featureDay(self):
+        """判断是否未来日期"""
+        # cron   
+        if self.isCron_time():
+            return True
+        
+        else:     
+            tempStr = self.circleTimeStr
+            tempValue = "每天" in tempStr or "每周" in tempStr or "每星期" in tempStr  or "工作日" in tempStr
+            # 日期
+            if self.is_valid_date(tempStr):
+                tempValue = arrow.get(tempStr, 'YYYY-MM-DD').date() > arrow.now().date()
+                
+            return tempValue 
+        
+    # 判断是否今天    
+    def is_today(self):
+        """判断是否今天"""
+        try:
+            if self.debug:
+                logging.debug(f"[is_today] 开始判断任务 {self.taskId} 是否今天执行")
+                logging.debug(f"[is_today] 轮询信息: {self.circleTimeStr}")
+            
+            # cron   
+            if self.isCron_time():
+                if self.debug:
+                    logging.debug(f"[is_today] 是cron任务，返回True")
+                return True 
+            
+            # 当前时间
+            current_time = arrow.now()
+            # 轮询信息
+            item_circle = self.circleTimeStr
+            
+            if self.debug:
+                logging.debug(f"[is_today] 当前时间: {current_time.format('YYYY-MM-DD HH:mm:ss')}")
+                logging.debug(f"[is_today] 任务时间: {item_circle}")
+            
+            # 处理特殊关键字和周期性任务
+            if "每天" in item_circle:
+                if self.debug:
+                    logging.debug(f"[is_today] 是每天任务，返回True")
+                return True
+                
+            # 如果是具体日期格式
+            if self.is_valid_date(item_circle):
+                # 日期相等
+                if item_circle == current_time.format('YYYY-MM-DD'):
+                    if self.debug:
+                        logging.debug(f"[is_today] 日期相等，返回True")
+                    return True
+                else:
+                    if self.debug:
+                        logging.debug(f"[is_today] 日期不相等，返回False")
+                    return False
+                
+            elif "每周" in item_circle or "每星期" in item_circle:
+                result = self.is_today_weekday(item_circle)
+                if self.debug:
+                    logging.debug(f"[is_today] 是每周任务，结果: {result}")
+                return result
+                
+            elif "工作日" in item_circle:
+                # 判断星期几
+                weekday = arrow.now().weekday()
+                # 判断是否是工作日
+                is_weekday = weekday < 5
+                if self.debug:
+                    logging.debug(f"[is_today] 是工作日任务，当前星期: {weekday}，是否工作日: {is_weekday}")
+                return is_weekday
+                        
+            if self.debug:
+                logging.debug(f"[is_today] 不满足任何条件，返回False")
+            return False
+                
+        except Exception as e:
+            if self.debug:
+                logging.debug(f"[is_today] 判断今天发生错误: {str(e)}")
+            return False
+            
+    # 判断是否今天的星期数    
+    def is_today_weekday(self, weekday_str):
+        """判断是否今天的星期数"""
+        # 将中文数字转换为阿拉伯数字
+        weekday_dict = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 7, '天': 7}
+        weekday_num = weekday_dict.get(weekday_str[-1])
+        if weekday_num is None:
+            return False
+        
+        # 判断今天是否是指定的星期几
+        today = arrow.now()
+        tempValue = today.weekday() == weekday_num - 1   
+        return tempValue   
+    
+    # 判断日期格式是否正确    
+    def is_valid_date(self, date_string):
+        """检查日期格式是否正确"""
+        if not date_string:
+            return False
+            
+        # 处理特殊日期关键字
+        if date_string in ['今天', '明天', '后天', '每天', '工作日']:
+            return True
+            
+        # 处理每周X的格式
+        if date_string.startswith('每周') or date_string.startswith('每星期'):
+            return True
+            
+        # 处理cron表达式
+        if date_string.startswith("cron["):
+            return True
+            
+        # 如果日期字符串包含时间戳，提取日期部分
+        if ' ' in date_string:
+            date_part = date_string.split(' ')[0]
+            time_part = date_string.split(' ')[1] if len(date_string.split(' ')) > 1 else ""
+        else:
+            date_part = date_string
+            time_part = ""
+        
+        pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+        match = pattern.match(date_part)
+        
+        # 额外检查时间部分，如果存在
+        if match:
+            if time_part:
+                time_pattern = re.compile(r'^\d{2}:\d{2}(:\d{2})?$')
+                return bool(time_pattern.match(time_part))
+            return True
+        return False
+    
+    # 获取周期
+    def get_cicleDay(self, circleStr):
+        """获取周期"""
+        if self.debug:
+            logging.debug(f"[get_cicleDay] 开始处理周期: {circleStr}")
+            
+        # 如果输入为空，返回空字符串
+        if not circleStr:
+            if self.debug:
+                logging.debug("[get_cicleDay] 输入为空，返回空字符串")
+            return ""
+            
+        # 处理特殊日期关键字
+        if circleStr == "今天":
+            if self.debug:
+                logging.debug("[get_cicleDay] 保持原始今天关键字")
+            return "今天"
+            
+        elif circleStr == "明天":
+            tomorrow = arrow.now().shift(days=1)
+            result = tomorrow.format('YYYY-MM-DD')
+            if self.debug:
+                logging.debug(f"[get_cicleDay] 明天转换为: {result}")
+            return result
+            
+        elif circleStr == "后天":
+            after_tomorrow = arrow.now().shift(days=2)
+            result = after_tomorrow.format('YYYY-MM-DD')
+            if self.debug:
+                logging.debug(f"[get_cicleDay] 后天转换为: {result}")
+            return result
+            
+        # 处理标准日期格式（YYYY-MM-DD）或带时间的格式（YYYY-MM-DD HH:MM:SS）
+        if re.match(r'^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$', circleStr):
+            if ' ' in circleStr:
+                date_part = circleStr.split(' ')[0]
+                if self.debug:
+                    logging.debug(f"[get_cicleDay] 从日期时间中提取日期部分: {date_part}")
+                return date_part
+            else:
+                if self.debug:
+                    logging.debug(f"[get_cicleDay] 标准日期格式: {circleStr}")
+                return circleStr
+            
+        # 处理周期性关键字
+        if circleStr in ["每天", "工作日"]:
+            if self.debug:
+                logging.debug(f"[get_cicleDay] 周期性任务: {circleStr}")
+            return circleStr
+            
+        # 处理每周X的格式
+        if circleStr in [
+            "每周一", "每周二", "每周三", "每周四", "每周五", "每周六","每周日","每周天", 
+            "每星期一", "每星期二","每星期三", "每星期四", "每星期五","每星期六", "每星期日", "每星期天"
+        ]:
+            if self.debug:
+                logging.debug(f"[get_cicleDay] 每周任务: {circleStr}")
+            return circleStr
+            
+        # 处理cron表达式
+        if circleStr.startswith("cron["):
+            if self.debug:
+                logging.debug(f"[get_cicleDay] cron表达式: {circleStr}")
+            return circleStr
+            
+        # 尝试解析其他格式的日期
+        try:
+            parsed_date = arrow.get(circleStr)
+            result = parsed_date.format('YYYY-MM-DD')
+            if self.debug:
+                logging.debug(f"[get_cicleDay] 其他格式转换为标准日期: {result}")
+            return result
+        except:
+            if self.debug:
+                logging.debug(f"[get_cicleDay] 无法解析的日期格式: {circleStr}")
+            # 如果无法解析，返回原始字符串
+            return circleStr
+    
+    # 获取时间
+    def get_time(self, timeStr):
+        """获取格式化的时间"""
+        if not timeStr:
+            return ""
+            
+        if self.debug:
+            logging.debug(f"[get_time] 开始处理时间: {timeStr}")
+            
+        try:
+            # 如果是cron表达式，直接返回
+            if timeStr.startswith("cron["):
+                return timeStr
+                
+            # 尝试解析完整时间戳格式
+            if " " in timeStr:
+                try:
+                    dt = datetime.strptime(timeStr, "%Y-%m-%d %H:%M:%S")
+                    return dt.strftime("%H:%M:%S")
+                except ValueError:
+                    try:
+                        dt = datetime.strptime(timeStr, "%Y-%m-%d %H:%M")
+                        return dt.strftime("%H:%M:00")
+                    except ValueError:
+                        # 如果datetime解析失败，尝试用arrow解析
+                        try:
+                            time_obj = arrow.get(timeStr)
+                            return time_obj.format("HH:mm:ss")
+                        except:
+                            pass
+                            
+            # 检查是否是标准时间格式
+            pattern1 = r'^\d{2}:\d{2}:\d{2}$'
+            pattern2 = r'^\d{2}:\d{2}$'
+            
+            if re.match(pattern1, timeStr):
+                return timeStr
+            elif re.match(pattern2, timeStr):
+                return timeStr + ":00"
+                
+            # 处理中文时间格式
+            if '点' in timeStr or '分' in timeStr or '秒' in timeStr:
+                # 预处理时间字符串
+                content = timeStr
+                for word in ['早上', '上午', '中午', '下午', '晚上']:
+                    content = content.replace(word, '')
+                content = content.replace("点", ":").replace("分", ":").replace("秒", "")
+                parts = content.split(":")
+                
+                # 中文数字转换字典
+                digits = {
+                    '零':0, '一':1, '二':2, '三':3, '四':4, '五':5, '六':6, '七':7, '八':8, '九':9, '十':10,
+                    '十一':11, '十二':12, '十三':13, '十四':14, '十五':15, '十六':16, '十七':17, '十八':18, '十九':19, '二十':20,
+                    '二十一':21, '二十二':22, '二十三':23, '半':30
+                }
+                
+                # 处理时分秒
+                hour = minute = second = "00"
+                
+                try:
+                    # 处理小时
+                    if len(parts) > 0 and parts[0]:
+                        if parts[0] in digits:
+                            hour = str(digits[parts[0]]).zfill(2)
+                        else:
+                            hour = str(int(parts[0])).zfill(2)
+                            
+                    # 处理分钟
+                    if len(parts) > 1 and parts[1]:
+                        if parts[1] in digits:
+                            minute = str(digits[parts[1]]).zfill(2)
+                        else:
+                            minute = str(int(parts[1])).zfill(2)
+                            
+                    # 处理秒
+                    if len(parts) > 2 and parts[2]:
+                        if parts[2] in digits:
+                            second = str(digits[parts[2]]).zfill(2)
+                        else:
+                            second = str(int(parts[2])).zfill(2)
+                            
+                    # 处理时间段
+                    if "中午" in timeStr and int(hour) < 12:
+                        hour = "12"
+                    elif ("下午" in timeStr or "晚上" in timeStr) and int(hour) < 12:
+                        hour = str(int(hour) + 12).zfill(2)
+                        
+                    # 验证时间有效性
+                    time_str = f"{hour}:{minute}:{second}"
+                    datetime.strptime(time_str, "%H:%M:%S")
+                    
+                    if self.debug:
+                        logging.debug(f"[get_time] 转换中文时间: {timeStr} -> {time_str}")
+                        
+                    return time_str
+                    
+                except (ValueError, KeyError) as e:
+                    if self.debug:
+                        logging.debug(f"[get_time] 时间转换发生异常: {timeStr}, 错误: {str(e)}")
+                    return ""
+                    
+            # 如果所有方法都失败了，尝试用arrow解析
+            try:
+                time_obj = arrow.get(timeStr)
+                return time_obj.format("HH:mm:ss")
+            except:
+                if self.debug:
+                    logging.debug(f"[get_time] Arrow时间解析失败: {timeStr}")
+                return ""
+                
+            return ""
             
         except Exception as e:
-            print(f"执行定时任务，发生了错误：{e}")
-            if retry_cnt < 2:
-                time.sleep(3 + 3 * retry_cnt)
-                self.replay_use_custom(model, reply_content, replyType, context, retry_cnt + 1)
-
-    # 执行定时task
-    def runTimeTask(self, model: TimeTaskModel):
-        print(f"[TimeTask] 开始执行定时任务，任务ID：{model.taskId}")
-        print(f"[TimeTask] 事件内容：{model.eventStr}")
+            if self.debug:
+                logging.debug(f"[get_time] 时间转换错误: {str(e)}")
+            return ""
+    
+    # 是否 cron表达式
+    def isCron_time(self):
+        return self.circleTimeStr.startswith("cron[")
+    
+    # 是否正确的cron格式
+    def isValid_Cron_time(self):
+        return croniter.is_valid(self.cron_expression)
+    
+    # 获取 cron表达式
+    def get_cron_expression(self):
+        tempValue = self.timeStr
+        tempValue = tempValue.replace("cron[", "")
+        tempValue = tempValue.replace("Cron[", "")
+        tempValue = tempValue.replace("]", "")
+        return tempValue
+    
+    # 是否 私聊制定群任务
+    def isPerson_makeGrop(self):
+        tempValue = self.eventStr.endswith("]")
+        tempValue1 = "group[" in self.eventStr or "Group[" in self.eventStr
+        return tempValue and tempValue1
+    
+    # 获取私聊制定群任务的群Title、事件
+    def get_Persion_makeGropTitle_eventStr(self):
+        index = -1
+        targetStr = self.eventStr
+        if "group[" in targetStr:
+            index = targetStr.index("group[")
+        elif "Group[" in targetStr:
+            index = targetStr.index("Group[")
+        if index < 0:
+              return "", targetStr
+          
+        substring_event = targetStr[:index].strip()
+        substring_groupTitle = targetStr[index + 6:]
+        substring_groupTitle = substring_groupTitle.replace("]", "").strip()
+        return substring_event, substring_groupTitle
+    
+    # 通过 群Title 获取群ID
+    def get_gropID_withGroupTitle(self, groupTitle, channel_name):
+        """通过群标题获取群ID"""
+        if len(groupTitle) <= 0:
+              return ""
+              
+        logger.info(f"[{channel_name}通道] 开始查找群【{groupTitle}】")
+        # 转换为小写以进行大小写不敏感匹配
+        groupTitle_lower = groupTitle.lower()
         
-        # 事件内容
-        eventStr = model.eventStr.replace('\\n', '\n')
-        
-        # 发送的用户ID
-        other_user_id = model.other_user_id
-        # 是否群聊
-        isGroup = model.isGroup
-
-        # 是否个人为群聊制定的任务
-        if model.isPerson_makeGrop():
-            eventStr, groupTitle = model.get_Persion_makeGropTitle_eventStr()
-            channel_name = RobotConfig.conf().get("channel_type", "wx")
-            groupId = model.get_gropID_withGroupTitle(groupTitle , channel_name)
-            other_user_id = groupId
-            isGroup = True
-            if not groupId:
-                logging.error(f"通过群标题【{groupTitle}】，未查到对应的群ID，跳过本次消息")
-                return
-        else:
-            groupTitle = model.other_user_nickname  # 如果不是个人指定的群聊，获取群名称
-
-        print("触发了定时任务：{} , 任务详情：{}".format(model.taskId, eventStr))
-
-        # 去除多余字符串
-        orgin_string = model.originMsg.replace("ChatMessage:", "")
-        # 使用正则表达式匹配键值对
-        pattern = r'(\w+)\s*=\s*([^,]+)'
-        matches = re.findall(pattern, orgin_string)
-        # 创建字典
-        content_dict = {match[0]: match[1] for match in matches}
-        # 替换源消息中的指令
-        content_dict["content"] = eventStr
-        # 添加必要key
-        content_dict["receiver"] = other_user_id
-        content_dict["isgroup"] = isGroup
-
-        if isGroup:
-            # 设置群聊相关信息
-            content_dict["from_user_id"] = other_user_id  # 群ID
-            content_dict["from_user_nickname"] = groupTitle  # 群名称
-            content_dict["actual_user_id"] = model.fromUser_id  # 实际发送者ID
-            content_dict["actual_user_nickname"] = model.fromUser  # 实际发送者昵称
-            # 设置 session_id 为群名称，以便 summary 插件识别
-            content_dict["session_id"] = groupTitle
-            content_dict["is_group"] = True
-        else:
-            # 设置私聊相关信息
-            content_dict["from_user_id"] = model.fromUser_id
-            content_dict["from_user_nickname"] = model.fromUser
-            content_dict["to_user_id"] = other_user_id
-            content_dict["to_user_nickname"] = model.other_user_nickname
-            content_dict["other_user_id"] = other_user_id
-            content_dict["other_user_nickname"] = model.other_user_nickname
-            content_dict["session_id"] = other_user_id
-            content_dict["is_group"] = False
-
-        msg: ChatMessage = ChatMessage(content_dict)
-        # 信息映射
-        for key, value in content_dict.items():
-            if hasattr(msg, key):
-                setattr(msg, key, value)
-        # 处理message的is_group
-        msg.is_group = isGroup
-        content_dict["msg"] = msg
-        context = Context(ContextType.TEXT, eventStr, content_dict)
-
-        # 处理GPT
-        event_content = eventStr
-        key_word = "GPT"
-        isGPT = event_content.startswith(key_word)
-
-        # GPT处理
-        if isGPT:
-            index = event_content.find(key_word)
-            # 内容体
-            event_content = event_content[:index] + event_content[index + len(key_word):]
-            event_content = event_content.strip()
-            # 替换源消息中的指令
-            content_dict["content"] = event_content
-            msg.content = event_content
-            context.__setitem__("content", event_content)
-
-            content = context.content.strip()
-            imgPrefix = RobotConfig.conf().get("image_create_prefix")
-            img_match_prefix = self.check_prefix(content, imgPrefix)
-            if img_match_prefix:
-                content = content.replace(img_match_prefix, "", 1)
-                context.type = ContextType.IMAGE_CREATE
-
-            # 获取回复信息
-            replay: Reply = Bridge().fetch_reply_content(content, context)
-            self.replay_use_custom(model, replay.content, replay.type, context)
-            return
-
-        # 处理特殊命令
-        event_content = eventStr
-        if event_content.startswith("举牌") or event_content.startswith("AI快讯"):
-            print(f"[TimeTask] 检测到特殊命令: {event_content}")
-            print(f"[TimeTask] 当前channel状态: {self.channel}")
-            print(f"[TimeTask] 当前context内容: {context.content}")
-            print(f"[TimeTask] 消息接收者: {other_user_id}")
-            print(f"[TimeTask] 是否群聊: {isGroup}")
-            
-            # 替换源消息中的指令
-            content_dict["content"] = event_content
-            msg.content = event_content
-            context.__setitem__("content", event_content)
-            
+        # itchat
+        if channel_name == "wx":
+            tempRoomId = ""
+            # 群聊处理       
             try:
-                # 确保 channel 已初始化
-                if self.channel is None:
-                    channel_name = RobotConfig.conf().get("channel_type", "wx")
-                    self.channel = channel_factory.create_channel(channel_name)
-                    print(f"[TimeTask] 重新初始化channel: {self.channel}")
+                # 群聊  
+                chatrooms = itchat.get_chatrooms(update=True)  # 添加update=True强制更新群列表
+                logger.info(f"[{channel_name}通道] 当前共有 {len(chatrooms)} 个群")
                 
-                # 获取所有已注册的插件
-                all_plugins = PluginManager().plugins
-                print(f"[TimeTask] 当前已注册的插件列表: {list(all_plugins.keys())}")
-                
-                # 检测插件是否会消费该消息
-                e_context = PluginManager().emit_event(
-                    EventContext(
-                        Event.ON_HANDLE_CONTEXT,
-                        {"channel": self.channel, "context": context, "reply": Reply()},
-                    )
-                )
-                
-                print(f"[TimeTask] 插件响应结果: {e_context}")
-                
-                if e_context and e_context["reply"]:
-                    reply = e_context["reply"]
-                    if reply and reply.type:
-                        print(f"[TimeTask] 准备发送回复，类型: {reply.type}")
-                        print(f"[TimeTask] 回复内容: {reply.content}")
-                        self.replay_use_custom(model, reply.content, reply.type, context)
-                        return
-                    else:
-                        print("[TimeTask] 插件返回的reply无效")
-                else:
-                    print("[TimeTask] 插件未返回有效响应")
+                # 获取群聊
+                for chatroom in chatrooms:
+                    # id
+                    userName = chatroom["UserName"]
+                    NickName = chatroom["NickName"]
+                    logger.debug(f"[{channel_name}通道] 正在检查群：{NickName}")
+                    # 转换为小写进行精确匹配
+                    nickName_lower = NickName.lower()
+                    # 使用精确匹配（只忽略大小写）
+                    if groupTitle_lower == nickName_lower:
+                        tempRoomId = userName
+                        logger.info(f"[{channel_name}通道] 找到匹配的群：{NickName}，ID：{userName}")
+                        break
                     
+                if not tempRoomId:
+                    logger.warning(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
+                    for room in chatrooms:
+                        logger.warning(f"  - {room['NickName']}")
+                        
             except Exception as e:
-                print(f"[TimeTask] 处理举牌/AI快讯命令时发生错误：{str(e)}")
-                import traceback
-                print(traceback.format_exc())
+                logger.error(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
+                logger.error(f"[{channel_name}通道] 错误详情：", exc_info=True)
+                return ""
+                
+            return tempRoomId
 
-        # 回复处理
-        e_context = None
-        # 是否开启了所有回复路由
-        is_open_route_everyReply = self.conf.get("is_open_route_everyReply", True)
-        if is_open_route_everyReply:
+        elif channel_name == "ntchat":
+            tempRoomId = ""
             try:
-                # 检测插件是否会消费该消息
-                e_context = PluginManager().emit_event(
-                    EventContext(
-                        Event.ON_HANDLE_CONTEXT,
-                        {"channel": self.channel, "context": context, "reply": Reply()},
-                    )
-                )
+                # 数据结构为字典数组
+                rooms = wechatnt.get_rooms()
+                logger.info(f"[{channel_name}通道] 当前共有 {len(rooms)} 个群")
+                
+                if len(rooms) > 0:
+                    # 遍历
+                    for item in rooms:
+                        roomId = item.get("wxid")
+                        nickname = item.get("nickname")
+                        logger.debug(f"[{channel_name}通道] 正在检查群：{nickname}")
+                        # 转换为小写进行精确匹配
+                        nickname_lower = nickname.lower()
+                        # 使用精确匹配（只忽略大小写）
+                        if groupTitle_lower == nickname_lower:
+                            tempRoomId = roomId
+                            logger.info(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
+                            break
+                            
+                if not tempRoomId:
+                    logger.warning(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
+                    for room in rooms:
+                        logger.warning(f"  - {room.get('nickname')}")
+                return tempRoomId
+                        
             except Exception as e:
-                print(f"开启了所有回复均路由，但是消息路由插件异常！后续会继续查询是否开启拓展功能。错误信息：{e}")
+                logger.error(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
+                logger.error(f"[{channel_name}通道] 错误详情：", exc_info=True)
+                return tempRoomId
 
-        # 查看配置中是否开启拓展功能
-        is_open_extension_function = self.conf.get("is_open_extension_function", True)
-        # 需要拓展功能 & 未被路由消费
-        route_replyType = None
-        if e_context and e_context["reply"]:
-            route_replyType = e_context["reply"].type
-        if is_open_extension_function and (route_replyType is None or route_replyType == ReplyType.INFO):
-            # 事件字符串
-            event_content = eventStr
-            # 支持的功能
-            funcArray = self.conf.get("extension_function", [])
-            isFindExFuc = False
-            for item in funcArray:
-                key_word = item["key_word"]
-                func_command_prefix = item["func_command_prefix"]
-                # 匹配到了拓展功能
-                if event_content.startswith(key_word):
-                    # 移除关键词并添加前缀
-                    content_after_keyword = event_content[len(key_word):].strip()
-                    event_content = func_command_prefix + content_after_keyword
-                    isFindExFuc = True
-                    break
+        elif channel_name == "wework":
+            tempRoomId = ""
+            try:
+                # 数据结构为字典数组
+                rooms = wework.get_rooms().get("room_list", [])
+                logger.info(f"[{channel_name}通道] 当前共有 {len(rooms)} 个群")
+                
+                if len(rooms) > 0:
+                    # 遍历
+                    for item in rooms:
+                        roomId = item.get("conversation_id")
+                        nickname = item.get("nickname")
+                        logger.debug(f"[{channel_name}通道] 正在检查群：{nickname}")
+                        # 转换为小写进行精确匹配
+                        nickname_lower = nickname.lower()
+                        # 使用精确匹配（只忽略大小写）
+                        if groupTitle_lower == nickname_lower:
+                            tempRoomId = roomId
+                            logger.info(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
+                            break
+                            
+                if not tempRoomId:
+                    logger.warning(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
+                    for room in rooms:
+                        logger.warning(f"  - {room.get('nickname')}")
+                        
+            except Exception as e:
+                logger.error(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
+                logger.error(f"[{channel_name}通道] 错误详情：", exc_info=True)
+                return ""
+                
+            return tempRoomId
 
-            # 找到了拓展功能
-            if isFindExFuc:
-                # 替换源消息中的指令
-                content_dict["content"] = event_content
-                msg.content = event_content
-                context.__setitem__("content", event_content)
-                try:
-                    # 检测插件是否会消费该消息
-                    e_context = PluginManager().emit_event(
-                        EventContext(
-                            Event.ON_HANDLE_CONTEXT,
-                            {"channel": self.channel, "context": context, "reply": Reply()},
-                        )
-                    )
-                except Exception as e:
-                    print(f"路由插件异常！将使用原消息回复。错误信息：{e}")
-
-        # 回复处理
-        reply_text = ""
-        replyType = None
-        # 插件消息
-        if e_context and e_context["reply"]:
-            reply = e_context["reply"]
-            if reply and reply.type:
-                reply_text = reply.content.replace('\\n', '\n')  # 处理换行符
-                replyType = reply.type
-
-        # 原消息
-        if not reply_text:
-            # 标题
-            if self.conf.get("is_need_title_whenNormalReply", True):
-                reply_text += f"⏰叮铃铃，定时任务时间已到啦~\n"
-            # 时间
-            if self.conf.get("is_need_currentTime_whenNormalReply", True):
-                # 获取当前时间
-                current_time = arrow.now()
-                # 去除秒钟
-                current_time_without_seconds = current_time.floor('minute')
-                # 转换为指定格式的字符串
-                formatted_time = current_time_without_seconds.format("YYYY-MM-DD HH:mm:ss")
-                reply_text += f"【当前时间】：{formatted_time}\n"
-            # 任务标识
-            if self.conf.get("is_need_identifier_whenNormalReply", True):
-                reply_text += f"【任务编号】：{model.taskId}\n"
-            # 内容描述
-            if self.conf.get("is_need_detailDeccription_whenNormalReply", True):
-                reply_text += f"{eventStr}"
-            # **删除重复的 eventStr 添加**
-            # reply_text += eventStr  # 删除此行，避免重复添加
-
-            replyType = ReplyType.TEXT
-
-        # 处理回复中的换行符
-        reply_text = reply_text.replace('\\n', '\n')
-
-        # 消息回复
-        self.replay_use_custom(model, reply_text, replyType, context)
-
-    # 检查前缀是否匹配
-    def check_prefix(self, content, prefix_list):
-        if not prefix_list:
-            return None
-        for prefix in prefix_list:
-            if content.startswith(prefix):
-                return prefix
-        return None
-
-    # 自定义排序函数，将字符串解析为 arrow 对象，并按时间进行排序
-    def custom_sort(self, time):
-        # cron - 排列最后
-        if time.startswith("cron"):
-            return arrow.get("23:59:59", "HH:mm:ss")
-        
-        # 普通时间
-        return arrow.get(time, "HH:mm:ss")
-
-    # 默认的提示
-    def get_default_remind(self, currentType: TimeTaskRemindType):
-        # 指令前缀
-        command_prefix = self.conf.get("command_prefix", "$time")
-
-        # head
-        head = "\n\n【温馨提示】\n"
-        addTask = f"👉添加任务：{command_prefix} 今天 10:00 提醒我健身" + "\n" + f"👉cron任务：{command_prefix} cron[0 * * * *] 准点报时" + "\n"
-        addTask += f"定群任务：{command_prefix} 今天 10:00 提醒我健身 group[群标题]" + "\n"
-        addGPTTask = f"👉GPT任务：{command_prefix} 今天 10:00 GPT 夸夸我" + "\n"
-        cancelTask = f"👉取消任务：{command_prefix} 取消任务 任务编号" + "\n"
-        taskList = f"👉任务列表：{command_prefix} 任务列表" + "\n"
-        more = "👉更多功能：#help timetask"
-        
-        # NO_Task = 1           #无任务
-        # Add_Success = 2       #添加任务成功
-        # Add_Failed = 3        #添加任务失败
-        # Cancel_Success = 4    #取消任务成功
-        # Cancel_Failed = 5     #取消任务失败
-        # TaskList_Success = 6  #查看任务列表成功
-        # TaskList_Failed = 7   #查看任务列表失败
-
-        # 组装
-        tempStr = head
-        if currentType == TimeTaskRemindType.NO_Task:
-           tempStr = tempStr + addTask + addGPTTask + cancelTask + taskList
-            
-        elif currentType == TimeTaskRemindType.Add_Success:
-            tempStr = tempStr + cancelTask + taskList
-            
-        elif currentType == TimeTaskRemindType.Add_Failed:
-            tempStr = tempStr + addTask + addGPTTask + cancelTask + taskList
-            
-        elif currentType == TimeTaskRemindType.Cancel_Success:
-            tempStr = tempStr + addTask + addGPTTask + taskList 
-        
-        elif currentType == TimeTaskRemindType.Cancel_Failed:
-            tempStr = tempStr + addTask + addGPTTask + cancelTask + taskList
-            
-        elif currentType == TimeTaskRemindType.TaskList_Success:
-            tempStr = tempStr + addTask + addGPTTask + cancelTask
-            
-        elif currentType == TimeTaskRemindType.TaskList_Failed:
-            tempStr = tempStr + addTask + addGPTTask + cancelTask + taskList   
-                  
         else:
-          tempStr = tempStr + addTask + addGPTTask + cancelTask + taskList
-          
-        # 拼接help指令
-        tempStr = tempStr + more
-          
-        return tempStr
+            logger.warning(f"[{channel_name}通道] 不支持通过群标题获取群ID，当前channel：{channel_name}")
+            return ""
 
-    # help信息
-    def get_help_text(self, **kwargs):
-        # 指令前缀
-        command_prefix = self.conf.get("command_prefix", "$time")
+# 清理过期文件
+class CleanFiles:
+    def __init__(self, save_path):
+        self.save_path = save_path
 
-        h_str = "🎉功能一：添加定时任务\n"
-        codeStr = f"【指令】：{command_prefix} 周期 时间 事件\n"
-        circleStr = "【周期】：今天、明天、后天、每天、工作日、每周X（如：每周三）、YYYY-MM-DD的日期、cron表达式\n"
-        timeStr = "【时间】：X点X分（如：十点十分）、HH:mm:ss的时间\n"
-        enventStr = "【事件】：早报、点歌、搜索、GPT、文案提醒（如：提醒我健身）\n"
-        exampleStr = f"\n👉提醒任务：{command_prefix} 今天 10:00 提醒我健身\n" + f"👉cron任务：{command_prefix} cron[0 * * * *] 准点报时" + "\n"
-        exampleStr += f"👉定群任务：{command_prefix} 今天 10:00 提醒我健身 group[群标题]" + "\n"
-        exampleStr0 = f"👉GPT任务：{command_prefix} 今天 10:00 GPT 夸夸我\n\n\n"
-        tempStr = h_str + codeStr + circleStr + timeStr + enventStr + exampleStr + exampleStr0
-        
-        h_str1 = "🎉功能二：取消定时任务\n"
-        codeStr1 = f"【指令】：{command_prefix} 取消任务 任务编号\n"
-        taskId1 = "【任务编号】：任务编号（添加任务成功时，机器人回复中有）\n"
-        exampleStr1 = f"\n👉示例：{command_prefix} 取消任务 urwOi0he\n\n\n"
-        tempStr1 = h_str1 + codeStr1 + taskId1 + exampleStr1
-        
-        h_str2 = "🎉功能三：获取任务列表\n"
-        codeStr2 = f"【指令】：{command_prefix} 任务列表\n"
-        exampleStr2 = f"\n👉示例：{command_prefix} 任务列表\n\n\n"
-        tempStr2 = h_str2 + codeStr2 + exampleStr2
-        
-        headStr = "📌 功能介绍：添加定时任务、取消定时任务、获取任务列表。\n\n"
-        help_text = headStr + tempStr + tempStr1 + tempStr2
-        return help_text
+    def clean_expired_files(self, days=3):
+        """清理过期文件"""
+        try:
+            # 使用更灵活的时间格式解析
+            current_time = datetime.now()
+            expire_time = current_time - timedelta(days=days)
+            
+            # 遍历目录
+            for root, dirs, files in os.walk(self.save_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    try:
+                        # 获取文件修改时间
+                        file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                        if file_time < expire_time:
+                            try:
+                                os.remove(file_path)
+                                logger.info(f"已删除过期文件: {file_path}")
+                            except Exception as e:
+                                logger.error(f"删除文件失败 {file_path}: {str(e)}")
+                    except Exception as e:
+                        logger.error(f"获取文件时间失败 {file_path}: {str(e)}")
+        except Exception as e:
+            logger.error(f"清理过期文件出错: {str(e)}")
+
+# 示例：任务调度器（需要根据实际情况进行调整）
+class TaskScheduler:
+    def __init__(self, excel_tool: ExcelTool):
+        self.excel_tool = excel_tool
+        self.running = True
+        self.lock = threading.Lock()
+        self.load_tasks()
+    
+    def load_tasks(self):
+        data = self.excel_tool.readExcel()
+        self.tasks = [TimeTaskModel(item, None, True, True) for item in data]
+        logger.info(f"加载了 {len(self.tasks)} 个任务")
+    
+    def start(self):
+        scheduler_thread = threading.Thread(target=self.run_scheduler)
+        scheduler_thread.setDaemon(True)
+        scheduler_thread.start()
+        logger.info("任务调度器已启动")
+    
+    def run_scheduler(self):
+        while self.running:
+            with self.lock:
+                for task in self.tasks:
+                    if task.enable and not task.is_today_consumed:
+                        if task.isCron_time():
+                            # cron任务处理
+                            self.handle_cron_task(task)
+                        else:
+                            # 非cron任务处理
+                            self.handle_regular_task(task)
+            time.sleep(30)  # 每30秒检查一次
+
+    def handle_regular_task(self, task: TimeTaskModel):
+        if task.is_today():
+            now = arrow.now()
+            task_time = arrow.get(now.format('YYYY-MM-DD') + ' ' + task.timeStr, 'YYYY-MM-DD HH:mm:ss')
+            
+            # 处理不带秒的时间
+            if len(task.timeStr.split(':')) == 2:
+                task_time = task_time.replace(second=0)
+            
+            # 如果任务时间已经过去但未执行，则立即执行
+            if now >= task_time and not task.is_today_consumed:
+                self.execute_task(task)
+                task.is_today_consumed = True
+                self.update_task_in_excel(task)
+                logger.info(f"立即执行已过时的任务: {task.taskId}")
+            elif task.is_nowTime()[0] and not task.is_today_consumed:
+                self.execute_task(task)
+                task.is_today_consumed = True
+                self.update_task_in_excel(task)
+                logger.info(f"执行任务: {task.taskId}")
+    
+    def handle_cron_task(self, task: TimeTaskModel):
+        current_time = arrow.now().format('HH:mm')
+        if current_time in task.cron_today_times and not task.is_today_consumed:
+            self.execute_task(task)
+            task.is_today_consumed = True
+            self.update_task_in_excel(task)
+            logger.info(f"执行cron任务: {task.taskId}")
+    
+    def execute_task(self, task: TimeTaskModel):
+        # 这里实现任务的具体执行逻辑
+        logger.info(f"执行任务 {task.taskId}: {task.eventStr}")
+        # 示例：发送消息
+        # send_message(task.toUser_id, task.eventStr)
+    
+    def update_task_in_excel(self, task: TimeTaskModel):
+        # 更新任务的消费状态到Excel
+        self.excel_tool.write_columnValue_withTaskId_toExcel(task.taskId, 14, "1")  # 假设第14列是消费状态
+    
+    def stop(self):
+        self.running = False
+        logger.info("任务调度器已停止")
+
+# 示例：如何使用上述类
+if __name__ == "__main__":
+    excel_tool = ExcelTool()
+    excel_tool.create_excel()
+    
+    scheduler = TaskScheduler(excel_tool)
+    scheduler.start()
+    
+    # 主线程继续运行，或者添加其他逻辑
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        scheduler.stop()
+        logger.info("程序已终止")
