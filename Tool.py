@@ -632,42 +632,43 @@ class TimeTaskModel:
     def is_today(self):
         """判断是否今天"""
         try:
-            #cron   
+            # cron表达式处理
             if self.isCron_time():
                 return True 
             
-            #当前时间
+            # 当前时间
             current_date = arrow.now().format('YYYY-MM-DD')
-            #轮询信息
+            # 轮询信息
             item_circle = self.circleTimeStr
             
             # 如果任务日期为空，说明是每天执行的任务
             if not item_circle or item_circle.strip() == "":
                 return True
                 
+            # 处理周期性任务标记
+            if item_circle.startswith("cycle_"):
+                cycle_type = item_circle.replace("cycle_", "")
+                
+                if cycle_type == "每天":
+                    return True
+                    
+                elif "每周" in cycle_type or "每星期" in cycle_type:
+                    return self.is_today_weekday(cycle_type)
+                    
+                elif cycle_type == "工作日":
+                    # 判断星期几（0-6，0是周一）
+                    weekday = arrow.now().weekday()
+                    # 判断是否是工作日（周一到周五）
+                    return weekday < 5
+                    
+                return False
+                
             # 处理具体日期格式
             if self.is_valid_date(item_circle):
-                if item_circle == current_date:
-                    return True
-                return False
+                return item_circle == current_date
                 
-            # 处理周期性任务
-            elif "每天" in item_circle:
-                return True
-                
-            elif "每周" in item_circle or "每星期" in item_circle:
-                return self.is_today_weekday(item_circle)
-                
-            elif "工作日" in item_circle:
-                # 判断星期几（0-6，0是周一）
-                weekday = arrow.now().weekday()
-                # 判断是否是工作日（周一到周五）
-                return weekday < 5
-                
-            else:
-                print(f"警告：任务 {self.taskId} 的日期格式不支持: {item_circle}")
-                return False
-                
+            return False
+            
         except Exception as e:
             print(f"检查任务日期时发生错误: {str(e)}")
             return False
@@ -711,25 +712,26 @@ class TimeTaskModel:
             if circleStr.startswith("cron["):
                 return circleStr
                 
+            # 处理周期性日期 - 修改这部分
+            if circleStr in ["每天", "每周", "工作日"]:
+                # 对于周期性任务，返回特殊标记而不是具体日期
+                return f"cycle_{circleStr}"
+                
+            # 处理每周X - 修改这部分
+            if circleStr in ["每周一", "每周二", "每周三", "每周四", "每周五", "每周六","每周日","每周天", 
+                           "每星期一", "每星期二","每星期三", "每星期四", "每星期五","每星期六", "每星期日", "每星期天"]:
+                return f"cycle_{circleStr}"
+                
             # 处理中文日期
             if circleStr in ['今天', '明天', '后天']:
                 today = arrow.now('local')
                 if circleStr == '今天':
-                    g_circle = today.format('YYYY-MM-DD HH:mm:ss')
+                    g_circle = today.format('YYYY-MM-DD')
                 elif circleStr == '明天':
-                    g_circle = today.shift(days=1).format('YYYY-MM-DD HH:mm:ss')
+                    g_circle = today.shift(days=1).format('YYYY-MM-DD')
                 elif circleStr == '后天':
-                    g_circle = today.shift(days=2).format('YYYY-MM-DD HH:mm:ss')
+                    g_circle = today.shift(days=2).format('YYYY-MM-DD')
                 return g_circle
-                
-            # 处理周期性日期
-            if circleStr in ["每天", "每周", "工作日"]:
-                return circleStr
-                
-            # 处理每周X
-            if circleStr in ["每周一", "每周二", "每周三", "每周四", "每周五", "每周六","每周日","每周天", 
-                           "每星期一", "每星期二","每星期三", "每星期四", "每星期五","每星期六", "每星期日", "每星期天"]:
-                return circleStr
                 
             # 尝试解析标准日期格式
             if re.match(pattern1, circleStr):
