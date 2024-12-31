@@ -642,63 +642,48 @@ class TimeTaskModel:
         if self.isCron_time():
             return True
         
-        else:     
-            tempStr = self.circleTimeStr
-            tempValue = "每天" in tempStr or "每周" in tempStr or "每星期" in tempStr  or "工作日" in tempStr
-            #日期
-            if self.is_valid_date(tempStr):
-                tempValue = arrow.get(tempStr, 'YYYY-MM-DD').date() > arrow.now().date()
-                
-            return tempValue 
+        tempStr = self.circleTimeStr
+        
+        # 对于"每天"和"工作日"这样的周期性任务,永远返回True
+        if tempStr in ["每天", "工作日"]:
+            return True
+            
+        # 对于每周X的任务,也返回True
+        if tempStr.startswith('每周') or tempStr.startswith('每星期'):
+            return True
+            
+        # 对于具体日期,判断是否是未来日期
+        if self.is_valid_date(tempStr):
+            return arrow.get(tempStr, 'YYYY-MM-DD').date() > arrow.now().date()
+            
+        return False
     
     #判断是否今天    
     def is_today(self):
         """判断是否今天"""
         try:
-            #cron   
-            if self.isCron_time():
-                return True 
+            tempStr = self.circleTimeStr
             
-            #当前时间
-            current_date = arrow.now().format('YYYY-MM-DD')
-            #轮询信息
-            item_circle = self.circleTimeStr
-            
-            # 如果任务日期为空，说明是每天执行的任务
-            if not item_circle or item_circle.strip() == "":
+            # 对于"每天",永远返回True
+            if tempStr == "每天":
                 return True
                 
-            # 处理特殊日期关键字
-            if item_circle == "今天":
-                return True
-            elif item_circle == "明天":
-                return False
-            elif item_circle == "后天":
-                return False
+            # 对于"工作日",判断今天是否是工作日(周一至周五)
+            if tempStr == "工作日":
+                today = arrow.now()
+                return 0 <= today.weekday() <= 4  # 周一到周五返回True
                 
-            # 处理具体日期格式
-            if self.is_valid_date(item_circle):
-                if item_circle == current_date:
-                    return True
-                return False
+            # 处理每周X的格式
+            if tempStr.startswith('每周') or tempStr.startswith('每星期'):
+                weekday = tempStr[-1]  # 获取最后一个字符
+                return self.is_today_weekday(weekday)
                 
-            # 处理周期性任务
-            elif "每天" in item_circle:
-                return True
+            # 处理具体日期
+            if self.is_valid_date(tempStr):
+                today = arrow.now().format('YYYY-MM-DD')
+                return tempStr == today
                 
-            elif "每周" in item_circle or "每星期" in item_circle:
-                return self.is_today_weekday(item_circle)
-                
-            elif "工作日" in item_circle:
-                # 判断星期几（0-6，0是周一）
-                weekday = arrow.now().weekday()
-                # 判断是否是工作日（周一到周五）
-                return weekday < 5
-                
-            else:
-                if self.debug:
-                    logging.debug(f"警告：任务 {self.taskId} 的日期格式不支持: {item_circle}")
-                return False
+            return False
                 
         except Exception as e:
             if self.debug:
@@ -756,70 +741,37 @@ class TimeTaskModel:
         """获取格式化的日期"""
         if not circleStr:
             return ""
-            
-        if self.debug:
-            logging.debug(f"正在处理日期: {circleStr}")
-            
-        try:
-            # 处理特殊周期，对于"每天"和"工作日"，直接返回原始字符串
-            if circleStr in ["每天", "工作日"]:
-                return circleStr
-                
-            # 处理特定日期
-            special_dates = {
-                "今天": arrow.now().format('YYYY-MM-DD'),
-                "明天": arrow.now().shift(days=1).format('YYYY-MM-DD'),
-                "后天": arrow.now().shift(days=2).format('YYYY-MM-DD'),
-            }
-            
-            if circleStr in special_dates:
-                return special_dates[circleStr]
-                
-            # 处理每周X的格式
-            weekday_map = {
-                "一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6,
-                "1": 0, "2": 1, "3": 2, "4": 3, "5": 4, "6": 5, "7": 6, "0": 6
-            }
-            
-            if circleStr.startswith("每周"):
-                day = circleStr[2:]  # 获取"每周"后面的字符
-                if day in weekday_map:
-                    target_weekday = weekday_map[day]
-                    current = arrow.now()
-                    days_ahead = target_weekday - current.weekday()
-                    if days_ahead <= 0:  # 如果目标日期在本周已过或就是今天
-                        days_ahead += 7  # 则指向下周的对应日期
-                    target_date = current.shift(days=days_ahead)
-                    return target_date.format('YYYY-MM-DD')
-                    
-            # 尝试直接解析标准日期格式
-            date_patterns = [
-                "%Y-%m-%d",
-                "%Y/%m/%d",
-                "%Y年%m月%d日",
-                "%Y.%m.%d"
-            ]
-            
-            for pattern in date_patterns:
-                try:
-                    dt = datetime.strptime(circleStr, pattern)
-                    return dt.strftime('%Y-%m-%d')
-                except ValueError:
-                    continue
-                    
-            # 如果所有格式都失败了,尝试用arrow解析
-            try:
-                dt = arrow.get(circleStr)
-                return dt.format('YYYY-MM-DD')
-            except:
-                if self.debug:
-                    logging.debug(f"所有日期格式转换都失败: {circleStr}")
-                return circleStr
-                
-        except Exception as e:
-            if self.debug:
-                logging.debug(f"日期转换发生异常: {circleStr}, 错误: {str(e)}")
+
+        # 直接返回特殊周期字符串
+        if circleStr in ["每天", "工作日"]:
             return circleStr
+            
+        # 处理今天、明天、后天
+        if circleStr == "今天":
+            return arrow.now().format('YYYY-MM-DD')
+        elif circleStr == "明天":
+            return arrow.now().shift(days=1).format('YYYY-MM-DD')
+        elif circleStr == "后天":
+            return arrow.now().shift(days=2).format('YYYY-MM-DD')
+            
+        # 处理每周X的格式    
+        if circleStr.startswith('每周') or circleStr.startswith('每星期'):
+            return circleStr
+            
+        # 处理标准日期格式
+        try:
+            # 尝试解析完整时间戳格式 YYYY-MM-DD HH:mm:ss
+            temp_date = datetime.strptime(circleStr, '%Y-%m-%d %H:%M:%S')
+            return temp_date.strftime('%Y-%m-%d')
+        except ValueError:
+            try:
+                # 尝试解析标准日期格式 YYYY-MM-DD
+                temp_date = datetime.strptime(circleStr, '%Y-%m-%d')
+                return temp_date.strftime('%Y-%m-%d')
+            except ValueError:
+                if self.debug:
+                    logging.debug(f"日期格式验证失败: {circleStr}")
+                return ""
     
     def get_time(self, timeStr):
         """获取格式化的时间"""
