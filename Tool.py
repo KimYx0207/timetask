@@ -425,6 +425,9 @@ class TimeTaskModel:
         self.isNeedCalculateCron = isNeedCalculateCron
         self.taskId = item[0]
         self.enable = item[1] == "1"
+        # 判断任务是否周期性
+        self.is_periodic = self.isCron_time() or self.circleTimeStr in ["每天", "工作日"] or re.match(r'^每周[一二三四五六日天]$', self.circleTimeStr) or re.match(r'^每星期[一二三四五六日天]$', self.circleTimeStr)
+        print(f'任务是否周期性: {self.is_periodic}')
         
         #是否今日已被消费
         self.is_today_consumed = False
@@ -749,7 +752,20 @@ class TimeTaskModel:
             return True
         logging.debug(f"is_periodic_task: '{self.circleTimeStr}' 不是周期性任务。返回 False。")
         return False
-
+        
+    def process_task(task: TimeTaskModel):
+        try:
+            if task.is_periodic:
+                print(f"处理周期性任务 {task.taskId}")
+                # 调度周期性任务，例如每天
+                schedule_periodic_task(task)
+            else:
+                print(f"处理一次性任务 {task.taskId}")
+                # 处理一次性任务，解析具体日期
+                task_date = datetime.strptime(task.circleTimeStr, '%Y-%m-%d')
+                schedule_one_time_task(task, task_date)
+        except Exception as e:
+            print(f"处理任务 {task.taskId} 时出错: {e}")
     
     #判断是否今天的星期数    
     def is_today_weekday(self, weekday_str):
@@ -1028,9 +1044,9 @@ class TimeTaskModel:
             minutes = int(self.timeStr.split(':')[1])
             hours = int(self.timeStr.split(':')[0])
             cron_expr = f"{seconds} {minutes} {hours} * * *"
-            logging.debug(f"get_cron_expression: 生成每天的 cron 表达式: '{cron_expr}'")
+            print(f"生成每天的 cron 表达式: '{cron_expr}'")
             return cron_expr
-        elif self.circleTimeStr.startswith('每周') or self.circleTimeStr.startswith('每星期'):
+        elif re.match(r'^每周[一二三四五六日天]$', self.circleTimeStr) or re.match(r'^每星期[一二三四五六日天]$', self.circleTimeStr):
             # 解析星期几
             weekday_map = {'一':1, '二':2, '三':3, '四':4, '五':5, '六':6, '日':7, '天':7}
             weekday_char = self.circleTimeStr[-1]
@@ -1039,12 +1055,12 @@ class TimeTaskModel:
             minutes = int(self.timeStr.split(':')[1])
             hours = int(self.timeStr.split(':')[0])
             cron_expr = f"{seconds} {minutes} {hours} * * {weekday_num}"
-            logging.debug(f"get_cron_expression: 生成每周的 cron 表达式: '{cron_expr}'")
+            print(f"生成每周的 cron 表达式: '{cron_expr}'")
             return cron_expr
         else:
-            # 处理已有的cron表达式
+            # 处理已有的cron表达式或其他格式
             cron_expr = self.timeStr.replace("cron[", "").replace("Cron[", "").replace("]", "")
-            logging.debug(f"get_cron_expression: 使用已有的 cron 表达式: '{cron_expr}'")
+            print(f"使用已有的 cron 表达式: '{cron_expr}'")
             return cron_expr
 
 
