@@ -760,42 +760,48 @@ class TimeTaskModel:
         if self.debug:
             logging.debug(f"正在处理日期: {circleStr}")
             
-        # 处理特殊日期关键字
-        if circleStr == "今天":
-            return arrow.now().format('YYYY-MM-DD')
-        elif circleStr == "明天":
-            return arrow.now().shift(days=1).format('YYYY-MM-DD')
-        elif circleStr == "后天":
-            return arrow.now().shift(days=2).format('YYYY-MM-DD')
-            
-        # 处理周期性关键字
-        if circleStr in ["每天", "工作日"] or circleStr.startswith("每周") or circleStr.startswith("每星期"):
-            return circleStr
-            
-        # 处理cron表达式
-        if circleStr.startswith("cron["):
-            return circleStr
-            
-        # 如果已经是支持的格式，直接返回
-        if self.is_valid_date(circleStr):
-            return circleStr
-            
-        # 处理多种时间格式
         try:
-            # 尝试多种常见的日期时间格式
-            formats = [
-                "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%d %H:%M",
-                "%Y/%m/%d %H:%M:%S",
-                "%Y/%m/%d %H:%M",
+            # 处理特殊周期
+            special_periods = {
+                "每天": arrow.now().format('YYYY-MM-DD'),
+                "工作日": arrow.now().format('YYYY-MM-DD'),
+                "今天": arrow.now().format('YYYY-MM-DD'),
+                "明天": arrow.now().shift(days=1).format('YYYY-MM-DD'),
+                "后天": arrow.now().shift(days=2).format('YYYY-MM-DD'),
+            }
+            
+            if circleStr in special_periods:
+                return special_periods[circleStr]
+                
+            # 处理每周X的格式
+            weekday_map = {
+                "一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6,
+                "1": 0, "2": 1, "3": 2, "4": 3, "5": 4, "6": 5, "7": 6, "0": 6
+            }
+            
+            if circleStr.startswith("每周"):
+                day = circleStr[2:]  # 获取"每周"后面的字符
+                if day in weekday_map:
+                    target_weekday = weekday_map[day]
+                    current = arrow.now()
+                    days_ahead = target_weekday - current.weekday()
+                    if days_ahead <= 0:  # 如果目标日期在本周已过或就是今天
+                        days_ahead += 7  # 则指向下周的对应日期
+                    target_date = current.shift(days=days_ahead)
+                    return target_date.format('YYYY-MM-DD')
+                    
+            # 尝试直接解析标准日期格式
+            date_patterns = [
                 "%Y-%m-%d",
-                "%Y/%m/%d"
+                "%Y/%m/%d",
+                "%Y年%m月%d日",
+                "%Y.%m.%d"
             ]
             
-            for fmt in formats:
+            for pattern in date_patterns:
                 try:
-                    dt = datetime.strptime(circleStr, fmt)
-                    return dt.strftime("%Y-%m-%d")
+                    dt = datetime.strptime(circleStr, pattern)
+                    return dt.strftime('%Y-%m-%d')
                 except ValueError:
                     continue
                     
