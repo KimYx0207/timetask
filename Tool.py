@@ -2,7 +2,8 @@
 # -*- coding: UTF-8 -*-
 
 import os
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
+from openpyxl import load_workbook
 from openpyxl.styles import NamedStyle
 import hashlib
 import base64
@@ -19,18 +20,18 @@ import threading
 import logging
 
 # 日志配置
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 try:
     from channel.wechatnt.ntchat_channel import wechatnt
 except Exception as e:
-    logger.error(f"未安装ntchat: {e}")
+    print(f"未安装ntchat: {e}")
 
 try:
     from channel.wework.run import wework
 except Exception as e:
-    logger.error(f"未安装wework: {e}")
+    print(f"未安装wework: {e}")
 
 class ExcelTool(object):
     __file_name = "timeTask.xlsx"
@@ -58,20 +59,20 @@ class ExcelTool(object):
             date_format = NamedStyle(name='date_format')
             date_format.number_format = 'YYYY-MM-DD'
 
-            # sheet1
+            #sheet1
             ws = wb.create_sheet(sheet_name, 0)
             # 类型处理
             for column in ws.columns:
-                # 日期格式
-                if column[0].column_letter == "D":
+                #日期格式
+                if column == "D":
                     for cell in column:
                         cell.style = date_format
-                # 字符串        
+                #字符串        
                 else:
                     for cell in column:
                         cell.number_format = '@'
             
-            # 宽度处理 
+            #宽度处理 
             for column in column_list_first:
                 ws.column_dimensions[column].width = width_value_first
             for column in column_list_two:
@@ -80,14 +81,14 @@ class ExcelTool(object):
                 ws.column_dimensions[column].width = width_value_three
             ws.column_dimensions["M"].width = width_value_four 
               
-            # sheet2
+            #sheet2
             ws1 = wb.create_sheet(history_sheet_name, 1)
             # 类型处理 - 设置为字符串
             for column in ws1.columns:
                 for cell in column:
                     cell.number_format = '@'
                     
-            # 宽度处理        
+            #宽度处理        
             for column in column_list_first:
                 ws1.column_dimensions[column].width = width_value_first
             for column in column_list_two:
@@ -95,19 +96,19 @@ class ExcelTool(object):
             ws1.column_dimensions["M"].width = width_value_three     
                     
             wb.save(workbook_file_path)
-            logger.info(f"定时Excel创建成功，文件路径为：{workbook_file_path}")
+            print("定时Excel创建成功，文件路径为：{}".format(workbook_file_path))
             
         else:
             wb = load_workbook(workbook_file_path)
             if not history_sheet_name in wb.sheetnames:
                 wb.create_sheet(history_sheet_name, 1)
                 wb.save(workbook_file_path)
-                logger.info(f"创建sheet: {history_sheet_name}")
+                print(f"创建sheet: {history_sheet_name}")
             else:
-                logger.info("timeTask文件已存在, 无需创建")
+                print("timeTask文件已存在, 无需创建")
                 
 
-    # 读取内容, 返回元组列表
+    # 读取内容,返回元组列表
     def readExcel(self, file_name=__file_name, sheet_name=__sheet_name):
         # 文件路径
         workbook_file_path = self.get_file_path(file_name)
@@ -117,15 +118,17 @@ class ExcelTool(object):
             wb = load_workbook(workbook_file_path)
             ws = wb[sheet_name]
             data = list(ws.values)
-            if not data or len(data) == 0:
-                logger.warning("[timeTask] 数据库timeTask任务列表数据为空")
+            #print(data)
+            if data is None or len(data) == 0:
+                print("[timeTask] 数据库timeTask任务列表数据为空")
+                
             return data
         else:
-            logger.warning("timeTask文件不存在, 读取数据为空")
+            print("timeTask文件不存在, 读取数据为空")
             self.create_excel()
             return []
         
-    # 将历史任务迁移到历史Sheet
+    # 将历史任务迁移指历史Sheet
     def moveTasksToHistoryExcel(self, tasks, file_name=__file_name, sheet_name=__sheet_name, history_sheet_name=__history_sheet_name):
         # 文件路径
         workbook_file_path = self.get_file_path(file_name)
@@ -136,41 +139,42 @@ class ExcelTool(object):
             ws = wb[sheet_name]
             data = list(ws.values)
             
-            # 需要删除的行号
+            #需要删除的坐标
             rows_to_delete = []
-            # 遍历任务列表
+            #遍历任务列表
             for i, item in enumerate(data):
-                # 任务ID
-                taskId = item[0]
-                for hisItem in tasks:
-                    # 历史任务ID
+                 #任务ID
+                 taskId = item[0]
+                 for _, hisItem in enumerate(tasks):
+                    #历史任务ID
                     his_taskId = hisItem[0]
                     if taskId == his_taskId:
                         rows_to_delete.append(i + 1)
             
-            # 排序删除行
+            #排序坐标
             sorted_rows_to_delete = sorted(rows_to_delete, reverse=True)
                         
-            # 删除行
+            #遍历任务列表
             for dx in sorted_rows_to_delete:
+                #移除
                 ws.delete_rows(dx)
                 
-            # 保存            
+            #保存            
             wb.save(workbook_file_path)
             
             hisIds = []
-            # 添加到历史列表
-            for t in tasks:
+            #添加历史列表
+            for _, t in enumerate(tasks):
                 his_taskId = t[0]
                 hisIds.append(his_taskId)
                 self.addItemToExcel(t, file_name, history_sheet_name)     
                 
-            logger.info(f"将任务Sheet({sheet_name})中的 过期任务 迁移到 -> 历史Sheet({history_sheet_name}) 完毕~ \n 迁移的任务ID为：{hisIds}")            
+            print(f"将任务Sheet({sheet_name})中的 过期任务 迁移指 -> 历史Sheet({history_sheet_name}) 完毕~ \n 迁移的任务ID为：{hisIds}")            
             
-            # 返回最新数据
+            #返回最新数据
             return self.readExcel()  
         else:
-            logger.warning("timeTask文件不存在, 数据为空")
+            print("timeTask文件不存在, 数据为空")
             self.create_excel()
             return []
 
@@ -179,7 +183,7 @@ class ExcelTool(object):
         # 文件路径
         workbook_file_path = self.get_file_path(file_name)
         
-        # 如果文件存在, 就执行
+        # 如果文件存在,就执行
         if os.path.exists(workbook_file_path):
             wb = load_workbook(workbook_file_path)
             ws = wb[sheet_name]
@@ -188,16 +192,17 @@ class ExcelTool(object):
             
             # 列表
             data = list(ws.values)
+            #print(data)
             return data
         else:
-            logger.warning("timeTask文件不存在, 添加数据失败")
+            print("timeTask文件不存在, 添加数据失败")
             self.create_excel()
             return []
         
         
     # 写入数据
     def write_columnValue_withTaskId_toExcel(self, taskId, column: int, columnValue: str,  file_name=__file_name, sheet_name=__sheet_name):
-        # 读取数据
+        #读取数据
         data = self.readExcel(file_name, sheet_name)
         if len(data) > 0:
             # 表格对象
@@ -206,170 +211,178 @@ class ExcelTool(object):
             ws = wb[sheet_name]
             isExist = False
             taskContent = None
-            # 遍历
+            #遍历
             for index, hisItem in enumerate(data):
                 model = TimeTaskModel(hisItem, None, False)
-                # ID是否相同
+                #ID是否相同
                 if model.taskId == taskId:
-                    # 置为已消费：即0或1
+                    #置为已消费：即0
                     ws.cell(index + 1, column).value = columnValue
                     isExist = True
                     taskContent = model
                     
             if isExist: 
-                # 保存
+                #保存
                 wb.save(workbook_file_path)
             
             return isExist, taskContent
         else:
-            logger.warning("timeTask文件无数据, 消费数据失败")
+            print("timeTask文件无数据, 消费数据失败")
             return False, None
     
     
-    # 获取文件路径      
+    #获取文件路径      
     def get_file_path(self, file_name=__file_name):
         # 文件路径
         current_file = os.path.abspath(__file__)
         current_dir = os.path.dirname(current_file)
-        workbook_file_path = os.path.join(current_dir, self.__dir_name, file_name)
+        workbook_file_path = current_dir + "/" + self.__dir_name + "/" + file_name
         
         # 工作簿当前目录
         workbook_dir_path = os.path.dirname(workbook_file_path)
         # 创建目录
         if not os.path.exists(workbook_dir_path):
-            # 创建工作簿路径, makedirs可以创建级联路径
+            # 创建工作簿路径,makedirs可以创建级联路径
             os.makedirs(workbook_dir_path)
             
         return workbook_file_path
         
-    # 更新用户ID  
+    #更新用户ID  
     def update_userId(self, file_name=__file_name, sheet_name=__sheet_name):
-        # 是否重新登录了
+        #是否重新登录了
         datas = self.readExcel(file_name, sheet_name)
         
         if len(datas) <= 0:
             return
             
-        # 模型数组
+        #模型数组
         tempArray : List[TimeTaskModel] = []
-        # 原始数据
+        #原始数据
         for item in datas:
             model = TimeTaskModel(item, None, False)
             tempArray.append(model)
             
-        # id字典数组：将相同目标人的ID聚合为一个数组
+        #id字典数组：将相同目标人的ID聚合为一个数组
         idsDic = {}
         groupIdsDic = {}
         for model in tempArray:
-            # 目标用户名称
+            #目标用户名称
             target_name = model.other_user_nickname
-            # 群聊
+            #群聊
             if model.isGroup:
-                if target_name not in groupIdsDic:
+                if not target_name in groupIdsDic.keys():
                     groupIdsDic[target_name] = [model]
                 else:
-                    groupIdsDic[target_name].append(model)
+                    arr1 = groupIdsDic[target_name]
+                    arr1.append(model)
+                    groupIdsDic[target_name] = list(arr1) 
             else:
-                # 好友
-                if target_name not in idsDic:
+                #好友
+                if not target_name in idsDic.keys():
                     idsDic[target_name] = [model]
                 else:
-                    idsDic[target_name].append(model)
+                    arr2 = idsDic[target_name]
+                    arr2.append(model)
+                    idsDic[target_name] = list(arr2)
         
-        # 待更新的ID数组
-        if len(idsDic) <= 0 and len(groupIdsDic) <= 0:
+        #待更新的ID数组
+        if len(idsDic) <= 0:
             return
         
-        # 原始ID ： 新ID
+        #原始ID ：新ID
         oldAndNewIDDic = self.getNewId(idsDic, groupIdsDic)
         if len(oldAndNewIDDic) <= 0:
             return
             
-        # 更新列表数据
+        #更新列表数据
         workbook_file_path = self.get_file_path(file_name)
         wb = load_workbook(workbook_file_path)
         ws = wb[sheet_name]
         excel_data = list(ws.values)
-        # 机器人ID
+        #机器人ID
         robot_user_id = itchat.instance.storageClass.userName
-        # 遍历任务列表 - 更新数据
+        #遍历任务列表 - 更新数据
         for index, item in enumerate(excel_data):
             model = TimeTaskModel(item, None, False)
-            # 目标用户ID
+            #目标用户ID
             oldId = model.other_user_id
             newId = oldAndNewIDDic.get(oldId)
-            # 找到了
+            #找到了
             if newId is not None and len(newId) > 0:
                 model.other_user_id = newId
-                # 更新ID
-                # from
+                #更新ID
+                #from
                 ws.cell(index + 1, 7).value = newId
-                # to
+                #to
                 ws.cell(index + 1, 9).value = robot_user_id
-                # other
+                #other
                 ws.cell(index + 1, 11).value = newId
-                # 替换原始信息中的ID
-                # 旧的机器人ID
+                #替换原始信息中的ID
+                #旧的机器人ID
                 old_robot_userId = model.toUser_id
-                # 原始消息体
+                #原始消息体
                 originStr = model.originMsg
-                # 替换旧的目标ID
+                #替换旧的目标ID
                 newString = originStr.replace(oldId, newId)
-                # 替换机器人ID
+                #替换机器人ID
                 newString = newString.replace(old_robot_userId, robot_user_id)
                 ws.cell(index + 1, 13).value = newString
-                # 等待写入
+                #等待写入
                 time.sleep(0.05)
                       
-        # 保存            
+        #保存            
         wb.save(workbook_file_path)
+        
             
-                
-                
-    # 获取新的用户ID  
+            
+    #获取新的用户ID  
     def getNewId(self, idsDic, groupIdsDic):
         oldAndNewIDDic = {}
-        # 好友  
+        #好友  
         friends = []
-        # 群聊
+        #群聊
         chatrooms = []
         
-        # 好友处理
+        #好友处理
         if len(idsDic) > 0:   
+            #好友处理
             try:
-                # 获取好友列表
+                #获取好友列表
                 friends = itchat.get_friends(update=True)[0:]
             except ZeroDivisionError:
-                logger.error("好友列表, 错误发生")
+                # 捕获并处理 ZeroDivisionError 异常
+                print("好友列表, 错误发生")
             
-            # 获取好友 -（id组装 旧 ： 新）
+            #获取好友 -（id组装 旧 ： 新）
             for friend in friends:
-                # id
+                #id
                 userName = friend["UserName"]
                 NickName = friend["NickName"]
                 modelArray = idsDic.get(NickName)
-                # 找到了好友
+                #找到了好友
                 if modelArray is not None and len(modelArray) > 0:
                     model : TimeTaskModel = modelArray[0]
                     oldId = model.other_user_id
                     if oldId != userName:
                         oldAndNewIDDic[oldId] = userName    
-     
-        # 群聊处理  
+         
+        #群聊处理  
         if len(groupIdsDic) > 0:          
+            #群聊处理       
             try:
-                # 获取群聊 （id组装 旧 ：新）   
+                #群聊 （id组装 旧 ：新）   
                 chatrooms = itchat.get_chatrooms()
             except ZeroDivisionError:
-                logger.error("群聊列表, 错误发生")
+                # 捕获并处理 ZeroDivisionError 异常
+                print("群聊列表, 错误发生")
             
-            # 获取群聊 - 旧 ： 新
+            #获取群聊 - 旧 ： 新
             for chatroom in chatrooms:
-                # id
+                #id
                 userName = chatroom["UserName"]
                 NickName = chatroom["NickName"]
                 modelArray = groupIdsDic.get(NickName)
-                # 找到了群聊
+                #找到了群聊
                 if modelArray is not None and len(modelArray) > 0:
                     model : TimeTaskModel = modelArray[0]
                     oldId = model.other_user_id
@@ -379,33 +392,33 @@ class ExcelTool(object):
         return oldAndNewIDDic         
         
 
-# Task模型        
+#task模型        
 class TimeTaskModel:
-    # Item数据排序
-    # 0：ID - 唯一ID (自动生成，无需填写)
-    # 1：是否可用 - 0/1，0=不可用，1=可用
-    # 2：时间信息 - 格式为：HH:mm:ss 或 HH:mm
-    # 3：轮询信息 - 格式为：每天、每周N、YYYY-MM-DD 或 cron表达式
-    # 4：消息内容 - 消息内容
-    # 5：fromUser - 来源user
-    # 6：fromUserID - 来源user ID
-    # 7：toUser - 发送给的user
-    # 8：toUser id - 来源user ID
-    # 9：other_user_nickname - Other名称
-    # 10：other_user_id - otherID
-    # 11：isGroup - 0/1，是否群聊； 0=否，1=是
-    # 12：原始内容 - 原始的消息体
-    # 13：今天是否被消息 - 每天会在凌晨自动重置
+    #Item数据排序
+    #0：ID - 唯一ID (自动生成，无需填写)
+    #1：是否可用 - 0/1，0=不可用，1=可用
+    #2：时间信息 - 格式为：HH:mm:ss
+    #3：轮询信息 - 格式为：每天、每周N、YYYY-MM-DD
+    #4：消息内容 - 消息内容
+    #5：fromUser - 来源user
+    #6：fromUserID - 来源user ID
+    #7：toUser - 发送给的user
+    #8：toUser id - 来源user ID
+    #9：other_user_nickname - Other名称
+    #10：other_user_id - otehrID
+    #11：isGroup - 0/1，是否群聊； 0=否，1=是
+    #12：原始内容 - 原始的消息体
+    #13：今天是否被消息 - 每天会在凌晨自动重置
     def __init__(self, item, msg:ChatMessage, isNeedFormat: bool, isNeedCalculateCron = False):
         self.debug = False
         self.isNeedCalculateCron = isNeedCalculateCron
         self.taskId = item[0]
         self.enable = item[1] == "1"
         
-        # 是否今日已被消费
+        #是否今日已被消费
         self.is_today_consumed = False
         
-        # 时间信息
+        #时间信息
         timeValue = item[2]
         tempTimeStr = ""
         if isinstance(timeValue, datetime):
@@ -415,10 +428,10 @@ class TimeTaskModel:
             tempTimeStr = timeValue
         else:
             # 其他类型
-            logger.warning("其他类型时间，暂不支持")
+            print("其他类型时间，暂不支持")
         self.timeStr = tempTimeStr
         
-        # 日期
+        #日期
         dayValue = item[3]
         tempDayStr = ""
         if isinstance(dayValue, datetime):
@@ -428,13 +441,13 @@ class TimeTaskModel:
             tempDayStr = dayValue
         else:
             # 其他类型
-            logger.warning("其他类型时间，暂不支持")
+            print("其他类型时间，暂不支持")
         self.circleTimeStr = tempDayStr
         
-        # 事件
+        #事件
         self.eventStr = item[4]
         
-        # 通过对象加载
+        #通过对象加载
         if msg is not None:
             self.fromUser = msg.from_user_nickname
             self.fromUser_id = msg.from_user_id
@@ -449,7 +462,7 @@ class TimeTaskModel:
                     group_info.append(msg.other_user_nickname)
                 self.toUser = " | ".join(group_info)  # 使用|分隔不同群名
                 self.toUser_id = msg.to_user_id
-                self.other_user_nickname = ""  # 清空, 因为已经合并到toUser中
+                self.other_user_nickname = ""  # 清空,因为已经合并到toUser中
                 self.other_user_id = msg.other_user_id
                 self.isGroup = True
             else:
@@ -461,7 +474,7 @@ class TimeTaskModel:
                 self.isGroup = False
             self.originMsg = str(msg)
         else:
-            # 通过Item加载
+            #通过Item加载
             self.fromUser = item[5]
             self.fromUser_id = item[6]
             self.toUser = item[7]
@@ -473,7 +486,7 @@ class TimeTaskModel:
             if len(item) > 13:
                 self.is_today_consumed = item[13] == "1" 
         
-        # 容错
+        #容错
         emptStr = ""
         self.fromUser = emptStr if self.fromUser is None else self.fromUser
         self.fromUser_id = emptStr if self.fromUser_id is None else self.fromUser_id
@@ -484,60 +497,60 @@ class TimeTaskModel:
         self.isGroup = False if self.isGroup is None else self.isGroup
         self.originMsg = emptStr if self.originMsg is None else self.originMsg   
         
-        # cron表达式
+        #cron表达式
         self.cron_expression = self.get_cron_expression()
         
-        # 需要处理格式
+        #需要处理格式
         if isNeedFormat:
-            # 计算内容ID (使用不可变的内容计算，去除元素：enable 会变、originMsg中有时间戳)
+            #计算内容ID (使用不可变的内容计算，去除元素：enable 会变、originMsg中有时间戳)
             new_tuple = (self.timeStr, self.circleTimeStr, self.eventStr, self.fromUser, 
                          self.toUser, self.other_user_id, "1" if self.isGroup else "0")
-            temp_content = '_'.join(new_tuple)
+            temp_content='_'.join(new_tuple)
             short_id = self.get_short_id(temp_content)
             if self.debug:
                 logging.debug(f'任务内容：{temp_content}，唯一ID：{short_id}')
             self.taskId = short_id
             
-            # 周期、time
-            # cron表达式
+            #周期、time
+            #cron表达式
             if self.isCron_time():
                 if self.debug:
                     logging.debug("使用cron表达式")
                 
             else:
-                # 正常的周期、时间
+                #正常的周期、时间
                 g_circle = self.get_cicleDay(self.circleTimeStr)
                 g_time = self.get_time(self.timeStr)
                 self.timeStr = g_time
                 self.circleTimeStr = g_circle
-        
-        # 今日消费态优化
+                
+        #今日消费态优化
         if self.is_today_consumed:
             # 每天凌晨自动重置消费状态
             now = datetime.now()
             if now.hour == 0 and now.minute == 0:
                 self.is_today_consumed = False
-            # 如果是今天的任务且时间未到, 也重置消费状态    
+            # 如果是今天的任务且时间未到,也重置消费状态    
             elif self.is_today() and (self.is_nowTime()[0] or self.is_featureTime()):
                 self.is_today_consumed = False
                 
-        # 数组为空
+        #数组为空
         self.cron_today_times = []
         
-        # 计算cron今天的时间点
+        #计算cron今天的时间点
         if self.isNeedCalculateCron and self.isCron_time() and self.enable:
             # 创建子线程
             t = threading.Thread(target=self.get_todayCron_times)
             t.setDaemon(True) 
             t.start() 
      
-    # 获取今天cron时间  
+    #获取今天cron时间  
     def get_todayCron_times(self):
         if not self.enable:
               return
           
         self.cron_today_times = []
-        # 校验cron格式
+        #校验cron格式
         if self.isValid_Cron_time():
             # 获取当前时间（忽略秒数）
             current_time = arrow.now().replace(second=0, microsecond=0)
@@ -545,35 +558,33 @@ class TimeTaskModel:
             cron = croniter(self.cron_expression, current_time.datetime)
             next_time = cron.get_next(datetime)
             while next_time.date() == current_time.date():
-                # 记录时间（时：分）
+                #记录时间（时：分）
                 next_time_hour_minut = next_time.strftime('%H:%M')
                 self.cron_today_times.append(next_time_hour_minut)
                 next_time = cron.get_next(datetime)
             
-            # 打印满足今天的cron的时间点    
-            logger.info(f"cron表达式为：{self.cron_expression}, 满足今天的时间节点为：{self.cron_today_times}")
+            #打印满足今天的cron的时间点    
+            print(f"cron表达式为：{self.cron_expression}, 满足今天的时间节点为：{self.cron_today_times}")
         
-    # 获取格式化后的Item
+    #获取格式化后的Item
     def get_formatItem(self):
-        temp_item = (
-            self.taskId,
-            "1" if self.enable else "0",
-            self.timeStr,
-            self.circleTimeStr,
-            self.eventStr,
-            self.fromUser,
-            self.fromUser_id,
-            self.toUser,
-            self.toUser_id,
-            self.other_user_nickname,
-            self.other_user_id,
-            "1" if self.isGroup else "0",
-            self.originMsg,
-            "1" if self.is_today_consumed else "0"
-        ) 
+        temp_item = (self.taskId,
+                "1" if self.enable else "0",
+                self.timeStr,
+                self.circleTimeStr,
+                self.eventStr,
+                self.fromUser,
+                self.fromUser_id,
+                self.toUser,
+                self.toUser_id,
+                self.other_user_nickname,
+                self.other_user_id,
+                "1" if self.isGroup else "0",
+                self.originMsg,
+                "1" if self.is_today_consumed else "0") 
         return temp_item
-        
-    # 计算唯一ID        
+            
+    #计算唯一ID        
     def get_short_id(self, string):
         # 使用 MD5 哈希算法计算字符串的哈希值
         hash_value = hashlib.md5(string.encode()).digest()
@@ -583,48 +594,28 @@ class TimeTaskModel:
         return short_id
     
     
-    # 判断是否当前时间    
+    #判断是否当前时间    
     def is_nowTime(self):
         """判断是否当前时间，返回(是否当前时间, 当前时间字符串)"""
-        try:
-            tempTimeStr = self.timeStr
-            if not tempTimeStr:
-                if self.debug:
-                    logging.debug("时间字符串为空")
-                return False, ""
-                
-            # cron表达式处理
-            if self.isCron_time():
-                current_time = arrow.now().format('HH:mm')
-                # 检查是否在今天的执行时间列表中
-                return current_time in self.cron_today_times, current_time
-                
-            # 处理标准时间格式
-            if tempTimeStr.count(":") == 1:
-                tempTimeStr = tempTimeStr + ":00"
-            elif tempTimeStr.count(":") != 2:
-                if self.debug:
-                    logging.debug(f"时间格式错误: {tempTimeStr}")
-                return False, ""
-                
-            try:
-                # 对比精准到分（忽略秒）
-                current_time = arrow.now().replace(second=0, microsecond=0)
-                task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0)
-                is_now = task_time.time() == current_time.time()
-                return is_now, current_time.format('HH:mm')
-                
-            except Exception as e:
-                if self.debug:
-                    logging.debug(f"时间比较发生错误: {str(e)}")
-                return False, ""
-                
-        except Exception as e:
-            if self.debug:
-                logging.debug(f"判断当前时间发生错误: {str(e)}")
+        tempTimeStr = self.timeStr
+        if not tempTimeStr:
             return False, ""
+            
+        if tempTimeStr.count(":") == 1:
+           tempTimeStr = tempTimeStr + ":00"
+        
+        #cron   
+        if self.isCron_time():
+            current_time = arrow.now().replace(second=0, microsecond=0)
+            return True, current_time.format('HH:mm')
+        else:    
+            #对比精准到分（忽略秒）
+            current_time = arrow.now().replace(second=0, microsecond=0)
+            task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0)
+            is_now = task_time.time() == current_time.time()
+            return is_now, current_time.format('HH:mm')
     
-    # 判断是否未来时间    
+    #判断是否未来时间    
     def is_featureTime(self):
         """判断是否未来时间"""
         tempTimeStr = self.timeStr
@@ -634,102 +625,87 @@ class TimeTaskModel:
         if tempTimeStr.count(":") == 1:
            tempTimeStr = tempTimeStr + ":00"
         
-        # cron   
+        #cron   
         if self.isCron_time():
             return True 
         else:    
-            # 对比精准到分（忽略秒）
+            #对比精准到分（忽略秒）
             current_time = arrow.now().replace(second=0, microsecond=0).time()
-            try:
-                task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0).time()
-            except Exception as e:
-                if self.debug:
-                    logging.debug(f"解析任务时间失败: {tempTimeStr}, 错误: {str(e)}")
-                return False
-            return task_time > current_time 
-        
-    # 判断是否未来日期    
+            task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0).time()
+            tempValue = task_time > current_time
+            return tempValue 
+    
+    #判断是否未来日期    
     def is_featureDay(self):
         """判断是否未来日期"""
-        # cron   
+        #cron   
         if self.isCron_time():
             return True
         
         else:     
             tempStr = self.circleTimeStr
             tempValue = "每天" in tempStr or "每周" in tempStr or "每星期" in tempStr  or "工作日" in tempStr
-            # 日期
+            #日期
             if self.is_valid_date(tempStr):
                 tempValue = arrow.get(tempStr, 'YYYY-MM-DD').date() > arrow.now().date()
                 
             return tempValue 
-        
-    # 判断是否今天    
+    
+    #判断是否今天    
     def is_today(self):
         """判断是否今天"""
         try:
-            if self.debug:
-                logging.debug(f"[is_today] 开始判断任务 {self.taskId} 是否今天执行")
-                logging.debug(f"[is_today] 轮询信息: {self.circleTimeStr}")
-            
-            # cron   
+            #cron   
             if self.isCron_time():
-                if self.debug:
-                    logging.debug(f"[is_today] 是cron任务，返回True")
                 return True 
             
-            # 当前时间
-            current_time = arrow.now()
-            # 轮询信息
+            #当前时间
+            current_date = arrow.now().format('YYYY-MM-DD')
+            #轮询信息
             item_circle = self.circleTimeStr
             
-            if self.debug:
-                logging.debug(f"[is_today] 当前时间: {current_time.format('YYYY-MM-DD HH:mm:ss')}")
-                logging.debug(f"[is_today] 任务时间: {item_circle}")
-            
-            # 处理特殊关键字和周期性任务
-            if "每天" in item_circle:
-                if self.debug:
-                    logging.debug(f"[is_today] 是每天任务，返回True")
+            # 如果任务日期为空，说明是每天执行的任务
+            if not item_circle or item_circle.strip() == "":
                 return True
                 
-            # 如果是具体日期格式
+            # 处理特殊日期关键字
+            if item_circle == "今天":
+                return True
+            elif item_circle == "明天":
+                return False
+            elif item_circle == "后天":
+                return False
+                
+            # 处理具体日期格式
             if self.is_valid_date(item_circle):
-                # 日期相等
-                if item_circle == current_time.format('YYYY-MM-DD'):
-                    if self.debug:
-                        logging.debug(f"[is_today] 日期相等，返回True")
+                if item_circle == current_date:
                     return True
-                else:
-                    if self.debug:
-                        logging.debug(f"[is_today] 日期不相等，返回False")
-                    return False
+                return False
+                
+            # 处理周期性任务
+            elif "每天" in item_circle:
+                return True
                 
             elif "每周" in item_circle or "每星期" in item_circle:
-                result = self.is_today_weekday(item_circle)
-                if self.debug:
-                    logging.debug(f"[is_today] 是每周任务，结果: {result}")
-                return result
+                return self.is_today_weekday(item_circle)
                 
             elif "工作日" in item_circle:
-                # 判断星期几
+                # 判断星期几（0-6，0是周一）
                 weekday = arrow.now().weekday()
-                # 判断是否是工作日
-                is_weekday = weekday < 5
+                # 判断是否是工作日（周一到周五）
+                return weekday < 5
+                
+            else:
                 if self.debug:
-                    logging.debug(f"[is_today] 是工作日任务，当前星期: {weekday}，是否工作日: {is_weekday}")
-                return is_weekday
-                        
-            if self.debug:
-                logging.debug(f"[is_today] 不满足任何条件，返回False")
-            return False
+                    logging.debug(f"警告：任务 {self.taskId} 的日期格式不支持: {item_circle}")
+                return False
                 
         except Exception as e:
             if self.debug:
-                logging.debug(f"[is_today] 判断今天发生错误: {str(e)}")
+                logging.debug(f"检查任务日期时发生错误: {str(e)}")
             return False
-            
-    # 判断是否今天的星期数    
+    
+    #判断是否今天的星期数    
     def is_today_weekday(self, weekday_str):
         """判断是否今天的星期数"""
         # 将中文数字转换为阿拉伯数字
@@ -743,7 +719,7 @@ class TimeTaskModel:
         tempValue = today.weekday() == weekday_num - 1   
         return tempValue   
         
-    # 判断日期格式是否正确    
+    #判断日期格式是否正确    
     def is_valid_date(self, date_string):
         """检查日期格式是否正确"""
         if not date_string:
@@ -761,108 +737,89 @@ class TimeTaskModel:
         if date_string.startswith("cron["):
             return True
             
-        # 如果日期字符串包含时间戳，提取日期部分
-        if ' ' in date_string:
-            date_part = date_string.split(' ')[0]
-            time_part = date_string.split(' ')[1] if len(date_string.split(' ')) > 1 else ""
-        else:
-            date_part = date_string
-            time_part = ""
-        
-        pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
-        match = pattern.match(date_part)
-        
-        # 额外检查时间部分，如果存在
-        if match:
-            if time_part:
-                time_pattern = re.compile(r'^\d{2}:\d{2}(:\d{2})?$')
-                return bool(time_pattern.match(time_part))
+        try:
+            # 尝试解析完整时间戳格式 YYYY-MM-DD HH:mm:ss
+            datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S')
             return True
-        return False
-    
-    # 获取周期
+        except ValueError:
+            try:
+                # 尝试解析标准日期格式 YYYY-MM-DD
+                datetime.strptime(date_string, '%Y-%m-%d')
+                return True
+            except ValueError:
+                if self.debug:
+                    logging.debug(f"日期格式验证失败: {date_string}")
+                return False
+
+    #获取周期
     def get_cicleDay(self, circleStr):
-        """获取周期"""
-        if self.debug:
-            logging.debug(f"[get_cicleDay] 开始处理周期: {circleStr}")
-            
-        # 如果输入为空，返回空字符串
+        """获取格式化的日期"""
         if not circleStr:
-            if self.debug:
-                logging.debug("[get_cicleDay] 输入为空，返回空字符串")
             return ""
+            
+        if self.debug:
+            logging.debug(f"正在处理日期: {circleStr}")
             
         # 处理特殊日期关键字
         if circleStr == "今天":
-            if self.debug:
-                logging.debug("[get_cicleDay] 保持原始今天关键字")
-            return "今天"
-            
+            return arrow.now().format('YYYY-MM-DD')
         elif circleStr == "明天":
-            tomorrow = arrow.now().shift(days=1)
-            result = tomorrow.format('YYYY-MM-DD')
-            if self.debug:
-                logging.debug(f"[get_cicleDay] 明天转换为: {result}")
-            return result
-            
+            return arrow.now().shift(days=1).format('YYYY-MM-DD')
         elif circleStr == "后天":
-            after_tomorrow = arrow.now().shift(days=2)
-            result = after_tomorrow.format('YYYY-MM-DD')
-            if self.debug:
-                logging.debug(f"[get_cicleDay] 后天转换为: {result}")
-            return result
-            
-        # 处理标准日期格式（YYYY-MM-DD）或带时间的格式（YYYY-MM-DD HH:MM:SS）
-        if re.match(r'^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$', circleStr):
-            if ' ' in circleStr:
-                date_part = circleStr.split(' ')[0]
-                if self.debug:
-                    logging.debug(f"[get_cicleDay] 从日期时间中提取日期部分: {date_part}")
-                return date_part
-            else:
-                if self.debug:
-                    logging.debug(f"[get_cicleDay] 标准日期格式: {circleStr}")
-                return circleStr
+            return arrow.now().shift(days=2).format('YYYY-MM-DD')
             
         # 处理周期性关键字
-        if circleStr in ["每天", "工作日"]:
-            if self.debug:
-                logging.debug(f"[get_cicleDay] 周期性任务: {circleStr}")
-            return circleStr
-            
-        # 处理每周X的格式
-        if circleStr in [
-            "每周一", "每周二", "每周三", "每周四", "每周五", "每周六","每周日","每周天", 
-            "每星期一", "每星期二","每星期三", "每星期四", "每星期五","每星期六", "每星期日", "每星期天"
-        ]:
-            if self.debug:
-                logging.debug(f"[get_cicleDay] 每周任务: {circleStr}")
+        if circleStr in ["每天", "工作日"] or circleStr.startswith("每周") or circleStr.startswith("每星期"):
             return circleStr
             
         # 处理cron表达式
         if circleStr.startswith("cron["):
-            if self.debug:
-                logging.debug(f"[get_cicleDay] cron表达式: {circleStr}")
             return circleStr
             
-        # 尝试解析其他格式的日期
+        # 如果已经是支持的格式，直接返回
+        if self.is_valid_date(circleStr):
+            return circleStr
+            
+        # 处理多种时间格式
         try:
-            parsed_date = arrow.get(circleStr)
-            result = parsed_date.format('YYYY-MM-DD')
+            # 尝试多种常见的日期时间格式
+            formats = [
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y/%m/%d %H:%M:%S",
+                "%Y/%m/%d %H:%M",
+                "%Y-%m-%d",
+                "%Y/%m/%d"
+            ]
+            
+            for fmt in formats:
+                try:
+                    dt = datetime.strptime(circleStr, fmt)
+                    return dt.strftime("%Y-%m-%d")
+                except ValueError:
+                    continue
+                    
+            # 如果所有格式都失败了,尝试用arrow解析
+            try:
+                dt = arrow.get(circleStr)
+                return dt.format('YYYY-MM-DD')
+            except:
+                if self.debug:
+                    logging.debug(f"所有日期格式转换都失败: {circleStr}")
+                return circleStr
+                
+        except Exception as e:
             if self.debug:
-                logging.debug(f"[get_cicleDay] 其他格式转换为标准日期: {result}")
-            return result
-        except:
-            if self.debug:
-                logging.debug(f"[get_cicleDay] 无法解析的日期格式: {circleStr}")
-            # 如果无法解析，返回原始字符串
+                logging.debug(f"日期转换发生异常: {circleStr}, 错误: {str(e)}")
             return circleStr
     
-    # 获取时间
     def get_time(self, timeStr):
         """获取格式化的时间"""
         if not timeStr:
             return ""
+            
+        if self.debug:
+            logging.debug(f"正在处理时间: {timeStr}")
             
         g_time = ""
         pattern1 = r'^\d{2}:\d{2}:\d{2}$'
@@ -872,6 +829,14 @@ class TimeTaskModel:
             # 如果是cron表达式，直接返回
             if timeStr.startswith("cron["):
                 return timeStr
+                
+            # 尝试解析完整时间戳格式
+            if " " in timeStr:
+                try:
+                    dt = datetime.strptime(timeStr, "%Y-%m-%d %H:%M:%S")
+                    return dt.strftime("%H:%M:%S")
+                except ValueError:
+                    pass
                 
             # 尝试解析标准时间格式
             if re.match(pattern1, timeStr):
@@ -908,7 +873,8 @@ class TimeTaskModel:
                             try:
                                 hour = str(int(parts[0]))
                             except:
-                                logger.warning(f"无法解析小时: {parts[0]}")
+                                if self.debug:
+                                    logging.debug(f"无法解析小时: {parts[0]}")
                                 return ""
                                 
                     # 处理分钟
@@ -946,11 +912,13 @@ class TimeTaskModel:
                     
                     g_time = f"{hour}:{minute}:{second}"
                     
-                except Exception as e:
-                    logger.warning(f"解析中文时间失败: {str(e)}")
-                    return ""
+                    if self.debug:
+                        logging.debug(f"转换中文时间: {timeStr} -> {g_time}")
                     
-            logger.debug(f"转换时间: {timeStr} -> {g_time}")
+                except Exception as e:
+                    if self.debug:
+                        logging.debug(f"解析中文时间失败: {str(e)}")
+                    return ""
             
             # 验证最终时间格式
             if re.match(pattern1, g_time):
@@ -958,18 +926,21 @@ class TimeTaskModel:
             return ""
             
         except Exception as e:
-            logger.error(f"时间转换错误: {str(e)}")
+            if self.debug:
+                logging.debug(f"时间转换错误: {str(e)}")
             return ""
     
-    # 是否 cron表达式
+    #是否 cron表达式
     def isCron_time(self):
-        return self.circleTimeStr.startswith("cron[")
+        tempValue = self.circleTimeStr.startswith("cron[")
+        return tempValue
     
-    # 是否正确的cron格式
+    #是否正确的cron格式
     def isValid_Cron_time(self):
-        return croniter.is_valid(self.cron_expression)
+        tempValue = croniter.is_valid(self.cron_expression)
+        return tempValue
     
-    # 获取 cron表达式
+    #获取 cron表达式
     def get_cron_expression(self):
         tempValue = self.timeStr
         tempValue = tempValue.replace("cron[", "")
@@ -977,13 +948,13 @@ class TimeTaskModel:
         tempValue = tempValue.replace("]", "")
         return tempValue
     
-    # 是否 私聊制定群任务
+    #是否 私聊制定群任务
     def isPerson_makeGrop(self):
         tempValue = self.eventStr.endswith("]")
         tempValue1 = "group[" in self.eventStr or "Group[" in self.eventStr
         return tempValue and tempValue1
     
-    # 获取私聊制定群任务的群Title、事件
+    #获取私聊制定群任务的群Title、事件
     def get_Persion_makeGropTitle_eventStr(self):
         index = -1
         targetStr = self.eventStr
@@ -999,47 +970,47 @@ class TimeTaskModel:
         substring_groupTitle = substring_groupTitle.replace("]", "").strip()
         return substring_event, substring_groupTitle
     
-    # 通过 群Title 获取群ID
+    #通过 群Title 获取群ID
     def get_gropID_withGroupTitle(self, groupTitle, channel_name):
         """通过群标题获取群ID"""
         if len(groupTitle) <= 0:
               return ""
               
-        logger.info(f"[{channel_name}通道] 开始查找群【{groupTitle}】")
+        print(f"[{channel_name}通道] 开始查找群【{groupTitle}】")
         # 转换为小写以进行大小写不敏感匹配
         groupTitle_lower = groupTitle.lower()
         
-        # itchat
+        #itchat
         if channel_name == "wx":
             tempRoomId = ""
-            # 群聊处理       
+            #群聊处理       
             try:
-                # 群聊  
+                #群聊  
                 chatrooms = itchat.get_chatrooms(update=True)  # 添加update=True强制更新群列表
-                logger.info(f"[{channel_name}通道] 当前共有 {len(chatrooms)} 个群")
+                print(f"[{channel_name}通道] 当前共有 {len(chatrooms)} 个群")
                 
-                # 获取群聊
+                #获取群聊
                 for chatroom in chatrooms:
-                    # id
+                    #id
                     userName = chatroom["UserName"]
                     NickName = chatroom["NickName"]
-                    logger.debug(f"[{channel_name}通道] 正在检查群：{NickName}")
+                    print(f"[{channel_name}通道] 正在检查群：{NickName}")
                     # 转换为小写进行精确匹配
                     nickName_lower = NickName.lower()
                     # 使用精确匹配（只忽略大小写）
                     if groupTitle_lower == nickName_lower:
                         tempRoomId = userName
-                        logger.info(f"[{channel_name}通道] 找到匹配的群：{NickName}，ID：{userName}")
+                        print(f"[{channel_name}通道] 找到匹配的群：{NickName}，ID：{userName}")
                         break
                     
                 if not tempRoomId:
-                    logger.warning(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
+                    print(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
                     for room in chatrooms:
-                        logger.warning(f"  - {room['NickName']}")
+                        print(f"  - {room['NickName']}")
                         
             except Exception as e:
-                logger.error(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
-                logger.error(f"[{channel_name}通道] 错误详情：", exc_info=True)
+                print(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
+                print(f"[{channel_name}通道] 错误详情：", e)
                 return ""
                 
             return tempRoomId
@@ -1047,73 +1018,72 @@ class TimeTaskModel:
         elif channel_name == "ntchat":
             tempRoomId = ""
             try:
-                # 数据结构为字典数组
+                #数据结构为字典数组
                 rooms = wechatnt.get_rooms()
-                logger.info(f"[{channel_name}通道] 当前共有 {len(rooms)} 个群")
+                print(f"[{channel_name}通道] 当前共有 {len(rooms)} 个群")
                 
                 if len(rooms) > 0:
-                    # 遍历
+                    #遍历
                     for item in rooms:
                         roomId = item.get("wxid")
                         nickname = item.get("nickname")
-                        logger.debug(f"[{channel_name}通道] 正在检查群：{nickname}")
+                        print(f"[{channel_name}通道] 正在检查群：{nickname}")
                         # 转换为小写进行精确匹配
                         nickname_lower = nickname.lower()
                         # 使用精确匹配（只忽略大小写）
                         if groupTitle_lower == nickname_lower:
                             tempRoomId = roomId
-                            logger.info(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
+                            print(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
                             
                 if not tempRoomId:
-                    logger.warning(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
+                    print(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
                     for room in rooms:
-                        logger.warning(f"  - {room.get('nickname')}")
+                        print(f"  - {room.get('nickname')}")
                 return tempRoomId
-                    
+                        
             except Exception as e:
-                logger.error(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
-                logger.error(f"[{channel_name}通道] 错误详情：", exc_info=True)
+                print(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
+                print(f"[{channel_name}通道] 错误详情：", e)
                 return tempRoomId
 
         elif channel_name == "wework":
             tempRoomId = ""
             try:
                 # 数据结构为字典数组
-                rooms = wework.get_rooms().get("room_list", [])
-                logger.info(f"[{channel_name}通道] 当前共有 {len(rooms)} 个群")
+                rooms = wework.get_rooms().get("room_list")
+                print(f"[{channel_name}通道] 当前共有 {len(rooms)} 个群")
                 
                 if len(rooms) > 0:
                     # 遍历
                     for item in rooms:
                         roomId = item.get("conversation_id")
                         nickname = item.get("nickname")
-                        logger.debug(f"[{channel_name}通道] 正在检查群：{nickname}")
+                        print(f"[{channel_name}通道] 正在检查群：{nickname}")
                         # 转换为小写进行精确匹配
                         nickname_lower = nickname.lower()
                         # 使用精确匹配（只忽略大小写）
                         if groupTitle_lower == nickname_lower:
                             tempRoomId = roomId
-                            logger.info(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
+                            print(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
                             
                 if not tempRoomId:
-                    logger.warning(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
+                    print(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
                     for room in rooms:
-                        logger.warning(f"  - {room.get('nickname')}")
+                        print(f"  - {room.get('nickname')}")
                         
             except Exception as e:
-                logger.error(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
-                logger.error(f"[{channel_name}通道] 错误详情：", exc_info=True)
+                print(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
+                print(f"[{channel_name}通道] 错误详情：", e)
                 return ""
                 
             return tempRoomId
 
         else:
-            logger.warning(f"[{channel_name}通道] 不支持通过群标题获取群ID，当前channel：{channel_name}")
+            print(f"[{channel_name}通道] 不支持通过群标题获取群ID，当前channel：{channel_name}")
             return ""
 
-# 清理过期文件
 class CleanFiles:
     def __init__(self, save_path):
         self.save_path = save_path
