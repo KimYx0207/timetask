@@ -121,15 +121,14 @@ class ExcelTool(object):
             if data is None or len(data) == 0:
                 print("[timeTask] 数据库timeTask任务列表数据为空")
             else:
+                # 如果有调试日志需求，可以使用 logging 直接记录，不依赖 self.debug
                 for row in data:
-                    if self.debug:
-                        logging.debug(f"读取任务数据: {row}")
+                    logging.debug(f"读取任务数据: {row}")
             return data
         else:
             print("timeTask文件不存在, 读取数据为空")
             self.create_excel()
             return []
-        
     # 将历史任务迁移指历史Sheet
     def moveTasksToHistoryExcel(self, tasks, file_name=__file_name, sheet_name=__sheet_name, history_sheet_name=__history_sheet_name):
         # 文件路径
