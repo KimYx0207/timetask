@@ -761,17 +761,19 @@ class TimeTaskModel:
             logging.debug(f"正在处理日期: {circleStr}")
             
         try:
-            # 处理特殊周期
-            special_periods = {
-                "每天": arrow.now().format('YYYY-MM-DD'),
-                "工作日": arrow.now().format('YYYY-MM-DD'),
+            # 处理特殊周期，对于"每天"和"工作日"，直接返回原始字符串
+            if circleStr in ["每天", "工作日"]:
+                return circleStr
+                
+            # 处理特定日期
+            special_dates = {
                 "今天": arrow.now().format('YYYY-MM-DD'),
                 "明天": arrow.now().shift(days=1).format('YYYY-MM-DD'),
                 "后天": arrow.now().shift(days=2).format('YYYY-MM-DD'),
             }
             
-            if circleStr in special_periods:
-                return special_periods[circleStr]
+            if circleStr in special_dates:
+                return special_dates[circleStr]
                 
             # 处理每周X的格式
             weekday_map = {
