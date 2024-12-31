@@ -420,16 +420,13 @@ class TimeTaskModel:
     #11：isGroup - 0/1，是否群聊； 0=否，1=是
     #12：原始内容 - 原始的消息体
     #13：今天是否被消息 - 每天会在凌晨自动重置
-    def __init__(self, item, msg:ChatMessage, isNeedFormat: bool, isNeedCalculateCron = False):
+    def __init__(self, item, msg: ChatMessage, isNeedFormat: bool, isNeedCalculateCron=False):
         self.debug = False
         self.isNeedCalculateCron = isNeedCalculateCron
         self.taskId = item[0]
         self.enable = item[1] == "1"
-        # 判断任务是否周期性
-        self.is_periodic = self.isCron_time() or self.circleTimeStr in ["每天", "工作日"] or re.match(r'^每周[一二三四五六日天]$', self.circleTimeStr) or re.match(r'^每星期[一二三四五六日天]$', self.circleTimeStr)
-        print(f'任务是否周期性: {self.is_periodic}')
         
-        #是否今日已被消费
+        # 是否今日已被消费
         self.is_today_consumed = False
         
         #时间信息
@@ -515,8 +512,9 @@ class TimeTaskModel:
         self.cron_expression = self.get_cron_expression()
 
         # 判断任务是否周期性
-        self.is_periodic = self.circleTimeStr == "每天" or self.circleTimeStr in ["工作日"] or self.circleTimeStr.startswith('每周') or self.circleTimeStr.startswith('每星期') or self.isCron_time()
-        
+        self.is_periodic = self.is_periodic_task()  # 使用独立的方法判断周期性
+        print(f'任务是否周期性: {self.is_periodic}')       
+
         #需要处理格式
         if isNeedFormat:
             #计算内容ID (使用不可变的内容计算，去除元素：enable 会变、originMsg中有时间戳)
@@ -752,7 +750,7 @@ class TimeTaskModel:
             return True
         logging.debug(f"is_periodic_task: '{self.circleTimeStr}' 不是周期性任务。返回 False。")
         return False
-        
+
     def process_task(task: TimeTaskModel):
         try:
             if task.is_periodic:
