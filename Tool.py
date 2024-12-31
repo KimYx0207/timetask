@@ -508,6 +508,9 @@ class TimeTaskModel:
         
         #cron表达式
         self.cron_expression = self.get_cron_expression()
+
+        # 判断任务是否周期性
+        self.is_periodic = self.circleTimeStr == "每天" or self.circleTimeStr in ["工作日"] or self.circleTimeStr.startswith('每周') or self.circleTimeStr.startswith('每星期') or self.isCron_time()
         
         #需要处理格式
         if isNeedFormat:
@@ -932,11 +935,22 @@ class TimeTaskModel:
     
     #获取 cron表达式
     def get_cron_expression(self):
-        tempValue = self.timeStr
-        tempValue = tempValue.replace("cron[", "")
-        tempValue = tempValue.replace("Cron[", "")
-        tempValue = tempValue.replace("]", "")
-        return tempValue
+        if self.circleTimeStr == "每天":
+            # 每天在指定时间执行
+            return f"{int(self.timeStr.split(':')[2])} {int(self.timeStr.split(':')[1])} {int(self.timeStr.split(':')[0])} * * *"
+        elif self.circleTimeStr.startswith('每周') or self.circleTimeStr.startswith('每星期'):
+            # 解析星期几
+            weekday_map = {'一':1, '二':2, '三':3, '四':4, '五':5, '六':6, '日':7, '天':7}
+            weekday_char = self.circleTimeStr[-1]
+            weekday_num = weekday_map.get(weekday_char, '*')
+            return f"{int(self.timeStr.split(':')[2])} {int(self.timeStr.split(':')[1])} {int(self.timeStr.split(':')[0])} * * {weekday_num}"
+        else:
+            # 处理已有的cron表达式
+            tempValue = self.timeStr
+            tempValue = tempValue.replace("cron[", "")
+            tempValue = tempValue.replace("Cron[", "")
+            tempValue = tempValue.replace("]", "")
+            return tempValue
     
     #是否 私聊制定群任务
     def isPerson_makeGrop(self):
