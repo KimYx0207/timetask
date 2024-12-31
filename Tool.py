@@ -185,6 +185,7 @@ class ExcelTool(object):
         # 标准化时间字符串
         timeStr = item[2]
         task = TimeTaskModel(item, None, True)
+        task.debug = True  # 手动开启调试
         item = list(item)
         item[2] = task.timeStr  # 确保timeStr已标准化
         item = tuple(item)
@@ -207,6 +208,7 @@ class ExcelTool(object):
             print("timeTask文件不存在, 添加数据失败")
             self.create_excel()
             return []
+
         
         
     # 写入数据
@@ -692,34 +694,61 @@ class TimeTaskModel:
     #判断是否今天    
     def is_today(self):
         """判断任务是否今天"""
+        logging.debug("is_today: 判断任务是否今天")
         try:
             tempStr = self.circleTimeStr
-
+            logging.debug(f"is_today: circleTimeStr='{tempStr}'")
+        
             # 对于"每天",永远返回 True
             if tempStr == "每天":
+                logging.debug("is_today: 任务是每天执行。返回 True。")
                 return True
-
+        
             # 对于"工作日",判断今天是否是工作日(周一至周五)
             if tempStr == "工作日":
                 today = arrow.now()
-                return 0 <= today.weekday() <= 4  # 周一到周五返回 True
-
+                is_weekday = 0 <= today.weekday() <= 4
+                logging.debug(f"is_today: 任务是工作日，今天是否工作日: {is_weekday}")
+                return is_weekday
+        
             # 处理每周X的格式
             if tempStr.startswith('每周') or tempStr.startswith('每星期'):
                 weekday = tempStr[-1]  # 获取最后一个字符
-                return self.is_today_weekday(weekday)
-
+                is_today = self.is_today_weekday(weekday)
+                logging.debug(f"is_today: 任务是每周任务，今天是否为指定星期几: {is_today}")
+                return is_today
+        
             # 处理具体日期
             if self.is_valid_date(tempStr):
                 today = arrow.now().format('YYYY-MM-DD')
-                return tempStr == today
+                is_today = tempStr == today
+                logging.debug(f"is_today: 任务是具体日期，是否今天: {is_today}")
+                return is_today
 
+            logging.debug("is_today: 任务既不是周期性任务，也不是具体日期。返回 False。")
             return False
 
         except Exception as e:
             if self.debug:
-                logging.debug(f"检查任务日期时发生错误: {str(e)}")
+                logging.debug(f"is_today: 检查任务日期时发生错误: {str(e)}")
             return False
+
+    def is_periodic_task(self) -> bool:
+        """
+        判断任务是否为周期性任务。
+        """
+        periodic_keywords = ["每天", "工作日"]
+        if self.circleTimeStr in periodic_keywords:
+            logging.debug(f"is_periodic_task: '{self.circleTimeStr}' 是周期性关键字。返回 True。")
+            return True
+        if self.circleTimeStr.startswith('每周') or self.circleTimeStr.startswith('每星期'):
+            logging.debug(f"is_periodic_task: '{self.circleTimeStr}' 是每周任务。返回 True。")
+            return True
+        if self.isCron_time():
+            logging.debug(f"is_periodic_task: 任务是 cron 表达式。返回 True。")
+            return True
+        logging.debug(f"is_periodic_task: '{self.circleTimeStr}' 不是周期性任务。返回 False。")
+        return False
 
     
     #判断是否今天的星期数    
@@ -740,80 +769,103 @@ class TimeTaskModel:
     def is_valid_date(self, date_string):
         """检查日期格式是否正确"""
         if not date_string:
+            logging.debug("is_valid_date: date_string为空。")
             return False
 
+        logging.debug(f"is_valid_date: 检查 date_string='{date_string}'")
+        
         # 不再将'每天'等视为有效日期
         if date_string in ['今天', '明天', '后天', '每天', '工作日']:
+            logging.debug(f"is_valid_date: '{date_string}' 是周期性关键字。返回 False。")
             return False
 
         # 不再将每周X的格式视为有效日期
         if date_string.startswith('每周') or date_string.startswith('每星期'):
+            logging.debug(f"is_valid_date: '{date_string}' 以 '每周' 或 '每星期' 开头。返回 False。")
             return False
 
         # 不再将cron表达式视为有效日期
         if date_string.startswith("cron["):
+            logging.debug(f"is_valid_date: '{date_string}' 是cron表达式。返回 False。")
             return False
 
         try:
             # 尝试解析完整时间戳格式 YYYY-MM-DD HH:mm:ss
             datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S')
+            logging.debug(f"is_valid_date: '{date_string}' 匹配 '%Y-%m-%d %H:%M:%S'。返回 True。")
             return True
         except ValueError:
             try:
                 # 尝试解析标准日期格式 YYYY-MM-DD
                 datetime.strptime(date_string, '%Y-%m-%d')
+                logging.debug(f"is_valid_date: '{date_string}' 匹配 '%Y-%m-%d'。返回 True。")
                 return True
             except ValueError:
-                if self.debug:
-                    logging.debug(f"日期格式验证失败: {date_string}")
+                logging.debug(f"is_valid_date: '{date_string}' 不匹配任何日期格式。返回 False。")
                 return False
+
 
 
     #获取周期
     def get_cicleDay(self, circleStr):
         """获取格式化的日期"""
         if not circleStr:
+            logging.debug("get_cicleDay: circleStr为空。")
             return ""
 
+        logging.debug(f"get_cicleDay: 处理 circleStr='{circleStr}'")
+        
         # 直接返回特殊周期字符串
         if circleStr in ["每天", "工作日"]:
+            logging.debug(f"get_cicleDay: '{circleStr}' 是特殊周期关键字。直接返回。")
             return circleStr
-            
+        
         # 处理今天、明天、后天
         if circleStr == "今天":
-            return arrow.now().format('YYYY-MM-DD')
+            formatted_date = arrow.now().format('YYYY-MM-DD')
+            logging.debug(f"get_cicleDay: '今天' 转换为 '{formatted_date}'")
+            return formatted_date
         elif circleStr == "明天":
-            return arrow.now().shift(days=1).format('YYYY-MM-DD')
+            formatted_date = arrow.now().shift(days=1).format('YYYY-MM-DD')
+            logging.debug(f"get_cicleDay: '明天' 转换为 '{formatted_date}'")
+            return formatted_date
         elif circleStr == "后天":
-            return arrow.now().shift(days=2).format('YYYY-MM-DD')
-            
+            formatted_date = arrow.now().shift(days=2).format('YYYY-MM-DD')
+            logging.debug(f"get_cicleDay: '后天' 转换为 '{formatted_date}'")
+            return formatted_date
+        
         # 处理每周X的格式    
         if circleStr.startswith('每周') or circleStr.startswith('每星期'):
+            logging.debug(f"get_cicleDay: '{circleStr}' 是每周任务。直接返回。")
             return circleStr
-            
+        
         # 处理标准日期格式
         try:
             # 尝试解析完整时间戳格式 YYYY-MM-DD HH:mm:ss
             temp_date = datetime.strptime(circleStr, '%Y-%m-%d %H:%M:%S')
-            return temp_date.strftime('%Y-%m-%d')
+            formatted_date = temp_date.strftime('%Y-%m-%d')
+            logging.debug(f"get_cicleDay: '{circleStr}' 解析为 '{formatted_date}'")
+            return formatted_date
         except ValueError:
             try:
                 # 尝试解析标准日期格式 YYYY-MM-DD
                 temp_date = datetime.strptime(circleStr, '%Y-%m-%d')
-                return temp_date.strftime('%Y-%m-%d')
+                formatted_date = temp_date.strftime('%Y-%m-%d')
+                logging.debug(f"get_cicleDay: '{circleStr}' 解析为 '{formatted_date}'")
+                return formatted_date
             except ValueError:
-                if self.debug:
-                    logging.debug(f"日期格式验证失败: {circleStr}")
+                logging.debug(f"get_cicleDay: '{circleStr}' 解析失败。")
                 return ""
+
     
     def get_time(self, timeStr):
         """获取格式化的时间"""
         if not timeStr:
+            logging.debug("get_time: timeStr为空。")
             return ""
             
-        if self.debug:
-            logging.debug(f"正在处理时间: '{timeStr}'")
-            
+        logging.debug(f"get_time: 正在处理时间字符串: '{timeStr}'")
+        
         g_time = ""
         # 允许一位或两位小时的正则表达式
         pattern1 = r'^\d{1,2}:\d{2}:\d{2}$'
@@ -822,14 +874,18 @@ class TimeTaskModel:
         try:
             # 如果是cron表达式，直接返回
             if timeStr.startswith("cron["):
+                logging.debug(f"get_time: '{timeStr}' 是cron表达式。直接返回。")
                 return timeStr
                 
             # 尝试解析完整时间戳格式
             if " " in timeStr:
                 try:
                     dt = datetime.strptime(timeStr, "%Y-%m-%d %H:%M:%S")
-                    return dt.strftime("%H:%M:%S")
+                    g_time = dt.strftime("%H:%M:%S")
+                    logging.debug(f"get_time: '{timeStr}' 解析为 '{g_time}'")
+                    return g_time
                 except ValueError:
+                    logging.debug(f"get_time: '{timeStr}' 不是 '%Y-%m-%d %H:%M:%S' 格式。继续尝试其他格式。")
                     pass
                 
             # 尝试解析标准时间格式
@@ -837,10 +893,12 @@ class TimeTaskModel:
                 # 如果格式完整，标准化为两位小时
                 dt = datetime.strptime(timeStr, "%H:%M:%S")
                 g_time = dt.strftime("%H:%M:%S")
+                logging.debug(f"get_time: '{timeStr}' 匹配 '{pattern1}'，标准化为 '{g_time}'")
             elif re.match(pattern2, timeStr):
                 # 如果只有时分，添加秒并标准化
                 dt = datetime.strptime(timeStr, "%H:%M")
                 g_time = dt.strftime("%H:%M:%S")
+                logging.debug(f"get_time: '{timeStr}' 匹配 '{pattern2}'，添加秒后为 '{g_time}'")
             else:
                 # 处理中文时间描述
                 try:
@@ -865,41 +923,50 @@ class TimeTaskModel:
                     if len(parts) > 0 and parts[0]:
                         if parts[0] in digits:
                             hour = str(digits[parts[0]])
+                            logging.debug(f"get_time: 解析小时部分 '{parts[0]}' 为 {hour}")
                         else:
                             try:
                                 hour = str(int(parts[0]))
-                            except:
-                                if self.debug:
-                                    logging.debug(f"无法解析小时: '{parts[0]}'")
+                                logging.debug(f"get_time: 解析小时部分 '{parts[0]}' 为 {hour}")
+                            except ValueError:
+                                logging.debug(f"get_time: 无法解析小时部分 '{parts[0]}'")
                                 return ""
                                 
                     # 处理分钟
                     if len(parts) > 1 and parts[1]:
                         if parts[1] in digits:
                             minute = str(digits[parts[1]])
+                            logging.debug(f"get_time: 解析分钟部分 '{parts[1]}' 为 {minute}")
                         else:
                             try:
                                 minute = str(int(parts[1]))
-                            except:
+                                logging.debug(f"get_time: 解析分钟部分 '{parts[1]}' 为 {minute}")
+                            except ValueError:
                                 minute = "0"
+                                logging.debug(f"get_time: 无法解析分钟部分 '{parts[1]}'，默认为 '0'")
                                 
                     # 处理秒
                     if len(parts) > 2 and parts[2]:
                         if parts[2] in digits:
                             second = str(digits[parts[2]])
+                            logging.debug(f"get_time: 解析秒部分 '{parts[2]}' 为 {second}")
                         else:
                             try:
                                 second = str(int(parts[2]))
-                            except:
+                                logging.debug(f"get_time: 解析秒部分 '{parts[2]}' 为 {second}")
+                            except ValueError:
                                 second = "0"
+                                logging.debug(f"get_time: 无法解析秒部分 '{parts[2]}'，默认为 '0'")
                                 
                     # 处理时间段
                     if "中午" in timeStr:
                         if int(hour) < 12:
                             hour = "12"
+                            logging.debug(f"get_time: 处理中午时间段，将小时 '{hour}' 设置为 '12'")
                     elif "下午" in timeStr or "晚上" in timeStr:
                         if int(hour) < 12:
                             hour = str(int(hour) + 12)
+                            logging.debug(f"get_time: 处理下午/晚上时间段，将小时 '{hour}' 增加为 '{hour}'")
                             
                     # 格式化时间
                     hour = f"0{hour}" if int(hour) < 10 else hour
@@ -909,27 +976,28 @@ class TimeTaskModel:
                     g_time = f"{hour}:{minute}:{second}"
                     
                     if self.debug:
-                        logging.debug(f"转换中文时间: '{timeStr}' -> '{g_time}'")
+                        logging.debug(f"get_time: 转换中文时间: '{timeStr}' -> '{g_time}'")
                     
                 except Exception as e:
                     if self.debug:
-                        logging.debug(f"解析中文时间失败: {str(e)}")
+                        logging.debug(f"get_time: 解析中文时间失败: {str(e)}")
                     return ""
             
             # 验证最终时间格式
             if re.match(pattern1, g_time):
                 if self.debug:
-                    logging.debug(f"最终格式化时间: '{g_time}'")
+                    logging.debug(f"get_time: 最终格式化时间符合预期: '{g_time}'")
                 return g_time
             else:
                 if self.debug:
-                    logging.debug(f"格式化时间不符合预期: '{g_time}'")
+                    logging.debug(f"get_time: 格式化时间不符合预期: '{g_time}'")
                 return ""
             
         except Exception as e:
             if self.debug:
-                logging.debug(f"时间转换错误: {str(e)}")
+                logging.debug(f"get_time: 时间转换错误: {str(e)}")
             return ""
+
 
             
             # 验证最终时间格式
@@ -956,20 +1024,29 @@ class TimeTaskModel:
     def get_cron_expression(self):
         if self.circleTimeStr == "每天":
             # 每天在指定时间执行
-            return f"{int(self.timeStr.split(':')[2])} {int(self.timeStr.split(':')[1])} {int(self.timeStr.split(':')[0])} * * *"
+            seconds = int(self.timeStr.split(':')[2])
+            minutes = int(self.timeStr.split(':')[1])
+            hours = int(self.timeStr.split(':')[0])
+            cron_expr = f"{seconds} {minutes} {hours} * * *"
+            logging.debug(f"get_cron_expression: 生成每天的 cron 表达式: '{cron_expr}'")
+            return cron_expr
         elif self.circleTimeStr.startswith('每周') or self.circleTimeStr.startswith('每星期'):
             # 解析星期几
             weekday_map = {'一':1, '二':2, '三':3, '四':4, '五':5, '六':6, '日':7, '天':7}
             weekday_char = self.circleTimeStr[-1]
             weekday_num = weekday_map.get(weekday_char, '*')
-            return f"{int(self.timeStr.split(':')[2])} {int(self.timeStr.split(':')[1])} {int(self.timeStr.split(':')[0])} * * {weekday_num}"
+            seconds = int(self.timeStr.split(':')[2])
+            minutes = int(self.timeStr.split(':')[1])
+            hours = int(self.timeStr.split(':')[0])
+            cron_expr = f"{seconds} {minutes} {hours} * * {weekday_num}"
+            logging.debug(f"get_cron_expression: 生成每周的 cron 表达式: '{cron_expr}'")
+            return cron_expr
         else:
             # 处理已有的cron表达式
-            tempValue = self.timeStr
-            tempValue = tempValue.replace("cron[", "")
-            tempValue = tempValue.replace("Cron[", "")
-            tempValue = tempValue.replace("]", "")
-            return tempValue
+            cron_expr = self.timeStr.replace("cron[", "").replace("Cron[", "").replace("]", "")
+            logging.debug(f"get_cron_expression: 使用已有的 cron 表达式: '{cron_expr}'")
+            return cron_expr
+
 
     
     #是否 私聊制定群任务
