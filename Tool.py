@@ -118,10 +118,12 @@ class ExcelTool(object):
             wb = load_workbook(workbook_file_path)
             ws = wb[sheet_name]
             data = list(ws.values)
-            #print(data)
             if data is None or len(data) == 0:
                 print("[timeTask] 数据库timeTask任务列表数据为空")
-                
+            else:
+                for row in data:
+                    if self.debug:
+                        logging.debug(f"读取任务数据: {row}")
             return data
         else:
             print("timeTask文件不存在, 读取数据为空")
@@ -531,15 +533,17 @@ class TimeTaskModel:
                 self.timeStr = g_time
                 self.circleTimeStr = g_circle
                 
-        #今日消费态优化
+        # 今日消费态优化
         if self.is_today_consumed:
-            # 每天凌晨自动重置消费状态
             now = datetime.now()
             if now.hour == 0 and now.minute == 0:
                 self.is_today_consumed = False
-            # 如果是今天的任务且时间未到,也重置消费状态    
+                if self.debug:
+                    logging.debug(f"任务 {self.taskId} 的 is_today_consumed 已在凌晨重置")
             elif self.is_today() and (self.is_nowTime()[0] or self.is_featureTime()):
                 self.is_today_consumed = False
+                if self.debug:
+                    logging.debug(f"任务 {self.taskId} 的 is_today_consumed 已因时间条件重置")
                 
         #数组为空
         self.cron_today_times = []
