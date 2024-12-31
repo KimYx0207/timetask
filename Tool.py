@@ -739,6 +739,7 @@ class TimeTaskModel:
         判断任务是否为周期性任务。
         """
         periodic_keywords = ["每天", "工作日"]
+        logging.debug(f"is_periodic_task: 检查 '{self.circleTimeStr}' 是否为周期性任务。")
         if self.circleTimeStr in periodic_keywords:
             logging.debug(f"is_periodic_task: '{self.circleTimeStr}' 是周期性关键字。返回 True。")
             return True
@@ -751,6 +752,7 @@ class TimeTaskModel:
         logging.debug(f"is_periodic_task: '{self.circleTimeStr}' 不是周期性任务。返回 False。")
         return False
 
+    @staticmethod
     def process_task(task: 'TimeTaskModel'):
         try:
             if task.is_periodic:
@@ -760,10 +762,15 @@ class TimeTaskModel:
             else:
                 print(f"处理一次性任务 {task.taskId}")
                 # 处理一次性任务，解析具体日期
-                task_date = datetime.strptime(task.circleTimeStr, '%Y-%m-%d')
-                schedule_one_time_task(task, task_date)
+                try:
+                    task_date = datetime.strptime(task.circleTimeStr, '%Y-%m-%d')
+                    schedule_one_time_task(task, task_date)
+                except ValueError as ve:
+                    logging.error(f"解析任务 {task.taskId} 的日期 '{task.circleTimeStr}' 失败: {ve}")
         except Exception as e:
             print(f"处理任务 {task.taskId} 时出错: {e}")
+            logging.error(f"处理任务 {task.taskId} 时出错: {e}")
+
     
     #判断是否今天的星期数    
     def is_today_weekday(self, weekday_str):
@@ -1036,14 +1043,16 @@ class TimeTaskModel:
     
     #获取 cron表达式
     def get_cron_expression(self):
+        logging.debug(f"get_cron_expression: 生成 cron 表达式，circleTimeStr='{self.circleTimeStr}', timeStr='{self.timeStr}'")
         if self.isCron_time():
             # 从 circleTimeStr 中提取 Cron 表达式
-            cron_expr = self.circleTimeStr.replace("cron[", "").replace("Cron[", "").replace("]", "")
+            cron_expr = self.circleTimeStr.replace("cron[", "").replace("Cron[", "").replace("]", "").strip()
             if croniter.is_valid(cron_expr):
                 print(f"使用已有的 cron 表达式: '{cron_expr}'")
+                logging.debug(f"get_cron_expression: 使用已有的 cron 表达式: '{cron_expr}'")
                 return cron_expr
             else:
-                logging.error(f"无效的 cron 表达式: '{cron_expr}'")
+                logging.error(f"get_cron_expression: 无效的 cron 表达式: '{cron_expr}'")
                 return ""
         elif self.circleTimeStr == "每天":
             # 每天在指定时间执行
@@ -1053,9 +1062,10 @@ class TimeTaskModel:
                 hours = int(self.timeStr.split(':')[0])
                 cron_expr = f"{seconds} {minutes} {hours} * * *"
                 print(f"生成每天的 cron 表达式: '{cron_expr}'")
+                logging.debug(f"get_cron_expression: 生成每天的 cron 表达式: '{cron_expr}'")
                 return cron_expr
             except (IndexError, ValueError) as e:
-                logging.error(f"生成每天的 cron 表达式失败: {str(e)}")
+                logging.error(f"get_cron_expression: 生成每天的 cron 表达式失败: {str(e)}")
                 return ""
         elif re.match(r'^每周[一二三四五六日天]$', self.circleTimeStr) or re.match(r'^每星期[一二三四五六日天]$', self.circleTimeStr):
             # 解析星期几
@@ -1068,13 +1078,16 @@ class TimeTaskModel:
                 hours = int(self.timeStr.split(':')[0])
                 cron_expr = f"{seconds} {minutes} {hours} * * {weekday_num}"
                 print(f"生成每周的 cron 表达式: '{cron_expr}'")
+                logging.debug(f"get_cron_expression: 生成每周的 cron 表达式: '{cron_expr}'")
                 return cron_expr
             except (IndexError, ValueError) as e:
-                logging.error(f"生成每周的 cron 表达式失败: {str(e)}")
+                logging.error(f"get_cron_expression: 生成每周的 cron 表达式失败: {str(e)}")
                 return ""
         else:
             # 对于非周期性任务，不生成 Cron 表达式
+            logging.debug("get_cron_expression: 非周期性任务，不生成 Cron 表达式。")
             return ""
+
 
 
 
