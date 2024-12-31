@@ -180,6 +180,13 @@ class ExcelTool(object):
 
     # 写入列表，返回元组列表
     def addItemToExcel(self, item, file_name=__file_name, sheet_name=__sheet_name):
+        # 标准化时间字符串
+        timeStr = item[2]
+        task = TimeTaskModel(item, None, True)
+        item = list(item)
+        item[2] = task.timeStr  # 确保timeStr已标准化
+        item = tuple(item)
+        
         # 文件路径
         workbook_file_path = self.get_file_path(file_name)
         
@@ -782,8 +789,9 @@ class TimeTaskModel:
             logging.debug(f"正在处理时间: {timeStr}")
             
         g_time = ""
-        pattern1 = r'^\d{2}:\d{2}:\d{2}$'
-        pattern2 = r'^\d{2}:\d{2}$'
+        pattern1 = r'^\d{1,2}:\d{2}:\d{2}$'
+        pattern2 = r'^\d{1,2}:\d{2}$'
+
         
         try:
             # 如果是cron表达式，直接返回
