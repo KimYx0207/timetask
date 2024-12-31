@@ -410,7 +410,7 @@ class TimeTaskModel:
     #12：原始内容 - 原始的消息体
     #13：今天是否被消息 - 每天会在凌晨自动重置
     def __init__(self, item, msg:ChatMessage, isNeedFormat: bool, isNeedCalculateCron = False):
-        self.debug = False
+        
         self.isNeedCalculateCron = isNeedCalculateCron
         self.taskId = item[0]
         self.enable = item[1] == "1"
@@ -451,27 +451,11 @@ class TimeTaskModel:
         if msg is not None:
             self.fromUser = msg.from_user_nickname
             self.fromUser_id = msg.from_user_id
-            
-            # 修复群组信息记录 - 合并群信息
-            if hasattr(msg, 'is_group') and msg.is_group:
-                # 对于群消息,将所有群信息合并成一条
-                group_info = []
-                if msg.to_user_nickname:
-                    group_info.append(msg.to_user_nickname)
-                if msg.other_user_nickname:
-                    group_info.append(msg.other_user_nickname)
-                self.toUser = " | ".join(group_info)  # 使用|分隔不同群名
-                self.toUser_id = msg.to_user_id
-                self.other_user_nickname = ""  # 清空,因为已经合并到toUser中
-                self.other_user_id = msg.other_user_id
-                self.isGroup = True
-            else:
-                # 私聊消息保持不变
-                self.toUser = msg.to_user_nickname
-                self.toUser_id = msg.to_user_id
-                self.other_user_nickname = msg.other_user_nickname
-                self.other_user_id = msg.other_user_id
-                self.isGroup = False
+            self.toUser = msg.to_user_nickname
+            self.toUser_id = msg.to_user_id
+            self.other_user_nickname = msg.other_user_nickname
+            self.other_user_id = msg.other_user_id
+            self.isGroup = msg.is_group
             self.originMsg = str(msg)
         else:
             #通过Item加载
@@ -507,15 +491,13 @@ class TimeTaskModel:
                          self.toUser, self.other_user_id, "1" if self.isGroup else "0")
             temp_content='_'.join(new_tuple)
             short_id = self.get_short_id(temp_content)
-            if self.debug:
-                logging.debug(f'任务内容：{temp_content}，唯一ID：{short_id}')
+            print(f'消息体：{temp_content}， 唯一ID：{short_id}')
             self.taskId = short_id
             
             #周期、time
             #cron表达式
             if self.isCron_time():
-                if self.debug:
-                    logging.debug("使用cron表达式")
+                print("cron 表达式")
                 
             else:
                 #正常的周期、时间
@@ -524,14 +506,9 @@ class TimeTaskModel:
                 self.timeStr = g_time
                 self.circleTimeStr = g_circle
                 
-        #今日消费态优化
+        #今日消费态优化（默认程序在00:00会将消费态回写，但是若程序被kill,则下次启动的本地缓存未正确回写，此处需要容错）
         if self.is_today_consumed:
-            # 每天凌晨自动重置消费状态
-            now = datetime.now()
-            if now.hour == 0 and now.minute == 0:
-                self.is_today_consumed = False
-            # 如果是今天的任务且时间未到,也重置消费状态    
-            elif self.is_today() and (self.is_nowTime()[0] or self.is_featureTime()):
+            if self.is_today() and (self.is_nowTime()[0] or self.is_featureTime()):
                 self.is_today_consumed = False
                 
         #数组为空
@@ -642,52 +619,57 @@ class TimeTaskModel:
         if self.isCron_time():
             return True
         
-        tempStr = self.circleTimeStr
-        
-        # 对于"每天"和"工作日"这样的周期性任务,永远返回True
-        if tempStr in ["每天", "工作日"]:
-            return True
-            
-        # 对于每周X的任务,也返回True
-        if tempStr.startswith('每周') or tempStr.startswith('每星期'):
-            return True
-            
-        # 对于具体日期,判断是否是未来日期
-        if self.is_valid_date(tempStr):
-            return arrow.get(tempStr, 'YYYY-MM-DD').date() > arrow.now().date()
-            
-        return False
+        else:     
+            tempStr = self.circleTimeStr
+            tempValue = "每天" in tempStr or "每周" in tempStr or "每星期" in tempStr  or "工作日" in tempStr
+            #日期
+            if self.is_valid_date(tempStr):
+                tempValue = arrow.get(tempStr, 'YYYY-MM-DD').date() > arrow.now().date()
+                
+            return tempValue 
     
     #判断是否今天    
     def is_today(self):
         """判断是否今天"""
         try:
-            tempStr = self.circleTimeStr
+            #cron   
+            if self.isCron_time():
+                return True 
             
-            # 对于"每天",永远返回True
-            if tempStr == "每天":
+            #当前时间
+            current_date = arrow.now().format('YYYY-MM-DD')
+            #轮询信息
+            item_circle = self.circleTimeStr
+            
+            # 如果任务日期为空，说明是每天执行的任务
+            if not item_circle or item_circle.strip() == "":
                 return True
                 
-            # 对于"工作日",判断今天是否是工作日(周一至周五)
-            if tempStr == "工作日":
-                today = arrow.now()
-                return 0 <= today.weekday() <= 4  # 周一到周五返回True
+            # 处理具体日期格式
+            if self.is_valid_date(item_circle):
+                if item_circle == current_date:
+                    return True
+                return False
                 
-            # 处理每周X的格式
-            if tempStr.startswith('每周') or tempStr.startswith('每星期'):
-                weekday = tempStr[-1]  # 获取最后一个字符
-                return self.is_today_weekday(weekday)
+            # 处理周期性任务
+            elif "每天" in item_circle:
+                return True
                 
-            # 处理具体日期
-            if self.is_valid_date(tempStr):
-                today = arrow.now().format('YYYY-MM-DD')
-                return tempStr == today
+            elif "每周" in item_circle or "每星期" in item_circle:
+                return self.is_today_weekday(item_circle)
                 
-            return False
+            elif "工作日" in item_circle:
+                # 判断星期几（0-6，0是周一）
+                weekday = arrow.now().weekday()
+                # 判断是否是工作日（周一到周五）
+                return weekday < 5
+                
+            else:
+                print(f"警告：任务 {self.taskId} 的日期格式不支持: {item_circle}")
+                return False
                 
         except Exception as e:
-            if self.debug:
-                logging.debug(f"检查任务日期时发生错误: {str(e)}")
+            print(f"检查任务日期时发生错误: {str(e)}")
             return False
     
     #判断是否今天的星期数    
@@ -706,80 +688,79 @@ class TimeTaskModel:
         
     #判断日期格式是否正确    
     def is_valid_date(self, date_string):
-        """检查日期格式是否正确"""
+        """判断日期格式是否正确"""
         if not date_string:
             return False
-            
-        # 处理特殊日期关键字
-        if date_string in ['今天', '明天', '后天', '每天', '工作日']:
-            return True
-            
-        # 处理每周X的格式
-        if date_string.startswith('每周') or date_string.startswith('每星期'):
-            return True
-            
-        # 处理cron表达式
-        if date_string.startswith("cron["):
-            return True
-            
-        try:
-            # 尝试解析完整时间戳格式 YYYY-MM-DD HH:mm:ss
-            datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S')
-            return True
-        except ValueError:
-            try:
-                # 尝试解析标准日期格式 YYYY-MM-DD
-                datetime.strptime(date_string, '%Y-%m-%d')
-                return True
-            except ValueError:
-                if self.debug:
-                    logging.debug(f"日期格式验证失败: {date_string}")
-                return False
-
+        pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+        match = pattern.match(date_string)
+        return match is not None
+    
     #获取周期
     def get_cicleDay(self, circleStr):
         """获取格式化的日期"""
         if not circleStr:
             return ""
-
-        # 直接返回特殊周期字符串
-        if circleStr in ["每天", "工作日"]:
-            return circleStr
             
-        # 处理今天、明天、后天
-        if circleStr == "今天":
-            return arrow.now().format('YYYY-MM-DD')
-        elif circleStr == "明天":
-            return arrow.now().shift(days=1).format('YYYY-MM-DD')
-        elif circleStr == "后天":
-            return arrow.now().shift(days=2).format('YYYY-MM-DD')
-            
-        # 处理每周X的格式    
-        if circleStr.startswith('每周') or circleStr.startswith('每星期'):
-            return circleStr
-            
-        # 处理标准日期格式
+        g_circle = ""
+        pattern1 = r'^\d{4}-\d{2}-\d{2}$'
+        pattern2 = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$'
+        pattern3 = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
+        
         try:
-            # 尝试解析完整时间戳格式 YYYY-MM-DD HH:mm:ss
-            temp_date = datetime.strptime(circleStr, '%Y-%m-%d %H:%M:%S')
-            return temp_date.strftime('%Y-%m-%d')
-        except ValueError:
-            try:
-                # 尝试解析标准日期格式 YYYY-MM-DD
-                temp_date = datetime.strptime(circleStr, '%Y-%m-%d')
-                return temp_date.strftime('%Y-%m-%d')
-            except ValueError:
-                if self.debug:
-                    logging.debug(f"日期格式验证失败: {circleStr}")
-                return ""
+            # 如果是cron表达式，直接返回
+            if circleStr.startswith("cron["):
+                return circleStr
+                
+            # 处理中文日期
+            if circleStr in ['今天', '明天', '后天']:
+                today = arrow.now('local')
+                if circleStr == '今天':
+                    g_circle = today.format('YYYY-MM-DD HH:mm:ss')
+                elif circleStr == '明天':
+                    g_circle = today.shift(days=1).format('YYYY-MM-DD HH:mm:ss')
+                elif circleStr == '后天':
+                    g_circle = today.shift(days=2).format('YYYY-MM-DD HH:mm:ss')
+                return g_circle
+                
+            # 处理周期性日期
+            if circleStr in ["每天", "每周", "工作日"]:
+                return circleStr
+                
+            # 处理每周X
+            if circleStr in ["每周一", "每周二", "每周三", "每周四", "每周五", "每周六","每周日","每周天", 
+                           "每星期一", "每星期二","每星期三", "每星期四", "每星期五","每星期六", "每星期日", "每星期天"]:
+                return circleStr
+                
+            # 尝试解析标准日期格式
+            if re.match(pattern1, circleStr):
+                # 如果只有日期，添加时间
+                g_circle = f"{circleStr} 00:00:00"
+            elif re.match(pattern2, circleStr):
+                # 如果有日期和时分，添加秒
+                g_circle = f"{circleStr}:00"
+            elif re.match(pattern3, circleStr):
+                # 如果格式完整，直接使用
+                g_circle = circleStr
+            else:
+                # 尝试智能解析日期
+                try:
+                    parsed_date = arrow.get(circleStr)
+                    g_circle = parsed_date.format('YYYY-MM-DD HH:mm:ss')
+                except Exception as e:
+                    print(f"智能解析日期失败: {str(e)}")
+                    return ""
+                    
+            print(f"转换日期: {circleStr} -> {g_circle}")
+            return g_circle
+            
+        except Exception as e:
+            print(f"日期转换错误: {str(e)}")
+            return ""
     
     def get_time(self, timeStr):
         """获取格式化的时间"""
         if not timeStr:
             return ""
-            
-        if self.debug:
-            logging.debug(f"正在处理时间: {timeStr}")
             
         g_time = ""
         pattern1 = r'^\d{2}:\d{2}:\d{2}$'
@@ -789,14 +770,6 @@ class TimeTaskModel:
             # 如果是cron表达式，直接返回
             if timeStr.startswith("cron["):
                 return timeStr
-                
-            # 尝试解析完整时间戳格式
-            if " " in timeStr:
-                try:
-                    dt = datetime.strptime(timeStr, "%Y-%m-%d %H:%M:%S")
-                    return dt.strftime("%H:%M:%S")
-                except ValueError:
-                    pass
                 
             # 尝试解析标准时间格式
             if re.match(pattern1, timeStr):
@@ -833,8 +806,7 @@ class TimeTaskModel:
                             try:
                                 hour = str(int(parts[0]))
                             except:
-                                if self.debug:
-                                    logging.debug(f"无法解析小时: {parts[0]}")
+                                print(f"无法解析小时: {parts[0]}")
                                 return ""
                                 
                     # 处理分钟
@@ -872,13 +844,11 @@ class TimeTaskModel:
                     
                     g_time = f"{hour}:{minute}:{second}"
                     
-                    if self.debug:
-                        logging.debug(f"转换中文时间: {timeStr} -> {g_time}")
-                    
                 except Exception as e:
-                    if self.debug:
-                        logging.debug(f"解析中文时间失败: {str(e)}")
+                    print(f"解析中文时间失败: {str(e)}")
                     return ""
+                    
+            print(f"转换时间: {timeStr} -> {g_time}")
             
             # 验证最终时间格式
             if re.match(pattern1, g_time):
@@ -886,8 +856,7 @@ class TimeTaskModel:
             return ""
             
         except Exception as e:
-            if self.debug:
-                logging.debug(f"时间转换错误: {str(e)}")
+            print(f"时间转换错误: {str(e)}")
             return ""
     
     #是否 cron表达式
@@ -955,10 +924,10 @@ class TimeTaskModel:
                     userName = chatroom["UserName"]
                     NickName = chatroom["NickName"]
                     print(f"[{channel_name}通道] 正在检查群：{NickName}")
-                    # 转换为小写进行精确匹配
+                    # 转换为小写进行比较
                     nickName_lower = NickName.lower()
-                    # 使用精确匹配（只忽略大小写）
-                    if groupTitle_lower == nickName_lower:
+                    # 使用in而不是完全匹配，这样可以处理包含特殊字符的群名
+                    if groupTitle_lower in nickName_lower or nickName_lower in groupTitle_lower:
                         tempRoomId = userName
                         print(f"[{channel_name}通道] 找到匹配的群：{NickName}，ID：{userName}")
                         break
@@ -988,10 +957,10 @@ class TimeTaskModel:
                         roomId = item.get("wxid")
                         nickname = item.get("nickname")
                         print(f"[{channel_name}通道] 正在检查群：{nickname}")
-                        # 转换为小写进行精确匹配
+                        # 转换为小写进行比较
                         nickname_lower = nickname.lower()
-                        # 使用精确匹配（只忽略大小写）
-                        if groupTitle_lower == nickname_lower:
+                        # 使用模糊匹配来处理特殊字符
+                        if groupTitle_lower in nickname_lower or nickname_lower in groupTitle_lower:
                             tempRoomId = roomId
                             print(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
@@ -1020,25 +989,24 @@ class TimeTaskModel:
                         roomId = item.get("conversation_id")
                         nickname = item.get("nickname")
                         print(f"[{channel_name}通道] 正在检查群：{nickname}")
-                        # 转换为小写进行精确匹配
+                        # 转换为小写进行比较
                         nickname_lower = nickname.lower()
-                        # 使用精确匹配（只忽略大小写）
-                        if groupTitle_lower == nickname_lower:
+                        # 使用模糊匹配来处理特殊字符
+                        if groupTitle_lower in nickname_lower or nickname_lower in groupTitle_lower:
                             tempRoomId = roomId
                             print(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
-                            
+
                 if not tempRoomId:
                     print(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
                     for room in rooms:
                         print(f"  - {room.get('nickname')}")
-                        
+                return tempRoomId
+
             except Exception as e:
                 print(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
                 print(f"[{channel_name}通道] 错误详情：", e)
                 return ""
-                
-            return tempRoomId
 
         else:
             print(f"[{channel_name}通道] 不支持通过群标题获取群ID，当前channel：{channel_name}")
