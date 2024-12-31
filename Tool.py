@@ -1036,30 +1036,46 @@ class TimeTaskModel:
     
     #获取 cron表达式
     def get_cron_expression(self):
-        if self.circleTimeStr == "每天":
+        if self.isCron_time():
+            # 从 circleTimeStr 中提取 Cron 表达式
+            cron_expr = self.circleTimeStr.replace("cron[", "").replace("Cron[", "").replace("]", "")
+            if croniter.is_valid(cron_expr):
+                print(f"使用已有的 cron 表达式: '{cron_expr}'")
+                return cron_expr
+            else:
+                logging.error(f"无效的 cron 表达式: '{cron_expr}'")
+                return ""
+        elif self.circleTimeStr == "每天":
             # 每天在指定时间执行
-            seconds = int(self.timeStr.split(':')[2])
-            minutes = int(self.timeStr.split(':')[1])
-            hours = int(self.timeStr.split(':')[0])
-            cron_expr = f"{seconds} {minutes} {hours} * * *"
-            print(f"生成每天的 cron 表达式: '{cron_expr}'")
-            return cron_expr
+            try:
+                seconds = int(self.timeStr.split(':')[2])
+                minutes = int(self.timeStr.split(':')[1])
+                hours = int(self.timeStr.split(':')[0])
+                cron_expr = f"{seconds} {minutes} {hours} * * *"
+                print(f"生成每天的 cron 表达式: '{cron_expr}'")
+                return cron_expr
+            except (IndexError, ValueError) as e:
+                logging.error(f"生成每天的 cron 表达式失败: {str(e)}")
+                return ""
         elif re.match(r'^每周[一二三四五六日天]$', self.circleTimeStr) or re.match(r'^每星期[一二三四五六日天]$', self.circleTimeStr):
             # 解析星期几
             weekday_map = {'一':1, '二':2, '三':3, '四':4, '五':5, '六':6, '日':7, '天':7}
             weekday_char = self.circleTimeStr[-1]
             weekday_num = weekday_map.get(weekday_char, '*')
-            seconds = int(self.timeStr.split(':')[2])
-            minutes = int(self.timeStr.split(':')[1])
-            hours = int(self.timeStr.split(':')[0])
-            cron_expr = f"{seconds} {minutes} {hours} * * {weekday_num}"
-            print(f"生成每周的 cron 表达式: '{cron_expr}'")
-            return cron_expr
+            try:
+                seconds = int(self.timeStr.split(':')[2])
+                minutes = int(self.timeStr.split(':')[1])
+                hours = int(self.timeStr.split(':')[0])
+                cron_expr = f"{seconds} {minutes} {hours} * * {weekday_num}"
+                print(f"生成每周的 cron 表达式: '{cron_expr}'")
+                return cron_expr
+            except (IndexError, ValueError) as e:
+                logging.error(f"生成每周的 cron 表达式失败: {str(e)}")
+                return ""
         else:
-            # 处理已有的cron表达式或其他格式
-            cron_expr = self.timeStr.replace("cron[", "").replace("Cron[", "").replace("]", "")
-            print(f"使用已有的 cron 表达式: '{cron_expr}'")
-            return cron_expr
+            # 对于非周期性任务，不生成 Cron 表达式
+            return ""
+
 
 
     
