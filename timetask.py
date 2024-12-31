@@ -47,16 +47,25 @@ class TimeTask(Plugin):
     def __init__(self):
         super().__init__()
         self.handlers[Event.ON_HANDLE_CONTEXT] = self.on_handle_context
-        print("[timetask] inited")
+        
+        # 加载配置
         load_config()
         self.conf = conf()
+        
+        # 根据配置设置日志级别
+        if not self.conf.get("debug", False):
+            logging.getLogger().setLevel(logging.WARNING)
+        
         self.taskManager = TaskManager(self.runTimeTask)
         self.channel = None
 
     def on_handle_context(self, e_context: EventContext):
         if self.channel is None:
             self.channel = e_context["channel"]
-            logging.debug(f"本次的channel为：{self.channel}")
+            if self.conf.get("debug", False):
+                logging.debug(f"本次的channel为：{self.channel}")
+            else:
+                logging.info(f"本次的channel为：{self.channel}")
 
         if e_context["context"].type not in [
             ContextType.TEXT,
@@ -65,14 +74,20 @@ class TimeTask(Plugin):
 
         # 查询内容
         query = e_context["context"].content
-        logging.info("定时任务的输入信息为:{}".format(query))
+        if self.conf.get("debug", False):
+            logging.debug("定时任务的输入信息为:{}".format(query))
+        else:
+            logging.info("定时任务的输入信息为:{}".format(query))
         # 指令前缀
         command_prefix = self.conf.get("command_prefix", "$time")
 
         # 需要的格式：$time 时间 事件
         if query.startswith(command_prefix):
             # 处理任务
-            print("[TimeTask] 捕获到定时任务:{}".format(query))
+            if self.conf.get("debug", False):
+                logging.debug("[TimeTask] 捕获到定时任务:{}".format(query))
+            else:
+                logging.info("[TimeTask] 捕获到定时任务:{}".format(query))
             # 移除指令
             # 示例：$time 明天 十点十分 提醒我健身
             content = query.replace(f"{command_prefix}", "", 1).strip()
@@ -385,20 +400,23 @@ class TimeTask(Plugin):
 
         if isGroup:
             # 设置群聊相关信息
-            content_dict["from_user_id"] = model.fromUser_id  # 发送者ID
-            content_dict["from_user_nickname"] = model.fromUser  # 发送者昵称
+            content_dict["from_user_id"] = other_user_id  # 群ID
+            content_dict["from_user_nickname"] = groupTitle  # 群名称
             content_dict["actual_user_id"] = model.fromUser_id  # 实际发送者ID
             content_dict["actual_user_nickname"] = model.fromUser  # 实际发送者昵称
-            content_dict["to_user_id"] = other_user_id  # 群ID
-            content_dict["to_user_nickname"] = groupTitle  # 群名称
             # 设置 session_id 为群名称，以便 summary 插件识别
             content_dict["session_id"] = groupTitle
+            content_dict["is_group"] = True
         else:
             # 设置私聊相关信息
             content_dict["from_user_id"] = model.fromUser_id
             content_dict["from_user_nickname"] = model.fromUser
-            # 设置 session_id 为用户ID
+            content_dict["to_user_id"] = other_user_id
+            content_dict["to_user_nickname"] = model.other_user_nickname
+            content_dict["other_user_id"] = other_user_id
+            content_dict["other_user_nickname"] = model.other_user_nickname
             content_dict["session_id"] = other_user_id
+            content_dict["is_group"] = False
 
         msg: ChatMessage = ChatMessage(content_dict)
         # 信息映射
