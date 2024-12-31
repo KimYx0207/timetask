@@ -184,7 +184,7 @@ class ExcelTool(object):
     def addItemToExcel(self, item, file_name=__file_name, sheet_name=__sheet_name):
         # 标准化时间字符串
         timeStr = item[2]
-        task = TimeTaskModel(item, None, True)
+        task = TimeTaskModel(item, None, True, True)
         task.debug = True  # 手动开启调试
         item = list(item)
         item[2] = task.timeStr  # 确保timeStr已标准化
@@ -751,7 +751,7 @@ class TimeTaskModel:
         logging.debug(f"is_periodic_task: '{self.circleTimeStr}' 不是周期性任务。返回 False。")
         return False
 
-    def process_task(task: TimeTaskModel):
+    def process_task(task: 'TimeTaskModel'):
         try:
             if task.is_periodic:
                 print(f"处理周期性任务 {task.taskId}")
