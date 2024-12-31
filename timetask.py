@@ -211,7 +211,7 @@ class ExcelTool(object):
                 model = TimeTaskModel(hisItem, None, False)
                 # ID是否相同
                 if model.taskId == taskId:
-                    # 置为已消费：即0
+                    # 置为已消费：即0或1
                     ws.cell(index + 1, column).value = columnValue
                     isExist = True
                     taskContent = model
@@ -323,7 +323,7 @@ class ExcelTool(object):
                       
         # 保存            
         wb.save(workbook_file_path)
-        
+            
                 
                 
     # 获取新的用户ID  
@@ -354,7 +354,7 @@ class ExcelTool(object):
                     oldId = model.other_user_id
                     if oldId != userName:
                         oldAndNewIDDic[oldId] = userName    
-         
+ 
         # 群聊处理  
         if len(groupIdsDic) > 0:          
             try:
@@ -719,7 +719,7 @@ class TimeTaskModel:
                 if self.debug:
                     logging.debug(f"[is_today] 是工作日任务，当前星期: {weekday}，是否工作日: {is_weekday}")
                 return is_weekday
-                        
+                    
             if self.debug:
                 logging.debug(f"[is_today] 不满足任何条件，返回False")
             return False
@@ -748,41 +748,13 @@ class TimeTaskModel:
         """检查日期格式是否正确"""
         if not date_string:
             return False
-            
-        # 处理特殊日期关键字
-        if date_string in ['今天', '明天', '后天', '每天', '工作日']:
-            return True
-            
-        # 处理每周X的格式
-        if date_string.startswith('每周') or date_string.startswith('每星期'):
-            return True
-            
-        # 处理cron表达式
-        if date_string.startswith("cron["):
-            return True
-            
-        # 如果日期字符串包含时间戳，提取日期部分
-        if ' ' in date_string:
-            date_part = date_string.split(' ')[0]
-            time_part = date_string.split(' ')[1] if len(date_string.split(' ')) > 1 else ""
-        else:
-            date_part = date_string
-            time_part = ""
-        
         pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
-        match = pattern.match(date_part)
-        
-        # 额外检查时间部分，如果存在
-        if match:
-            if time_part:
-                time_pattern = re.compile(r'^\d{2}:\d{2}(:\d{2})?$')
-                return bool(time_pattern.match(time_part))
-            return True
-        return False
+        match = pattern.match(date_string)
+        return match is not None
     
     # 获取周期
     def get_cicleDay(self, circleStr):
-        """获取周期"""
+        """获取格式化的日期"""
         if self.debug:
             logging.debug(f"[get_cicleDay] 开始处理周期: {circleStr}")
             
@@ -864,115 +836,101 @@ class TimeTaskModel:
         if not timeStr:
             return ""
             
-        if self.debug:
-            logging.debug(f"[get_time] 开始处理时间: {timeStr}")
-            
+        g_time = ""
+        pattern1 = r'^\d{2}:\d{2}:\d{2}$'
+        pattern2 = r'^\d{2}:\d{2}$'
+        
         try:
             # 如果是cron表达式，直接返回
             if timeStr.startswith("cron["):
                 return timeStr
                 
-            # 尝试解析完整时间戳格式
-            if " " in timeStr:
-                try:
-                    dt = datetime.strptime(timeStr, "%Y-%m-%d %H:%M:%S")
-                    return dt.strftime("%H:%M:%S")
-                except ValueError:
-                    try:
-                        dt = datetime.strptime(timeStr, "%Y-%m-%d %H:%M")
-                        return dt.strftime("%H:%M:00")
-                    except ValueError:
-                        # 如果datetime解析失败，尝试用arrow解析
-                        try:
-                            time_obj = arrow.get(timeStr)
-                            return time_obj.format("HH:mm:ss")
-                        except:
-                            pass
-                            
-            # 检查是否是标准时间格式
-            pattern1 = r'^\d{2}:\d{2}:\d{2}$'
-            pattern2 = r'^\d{2}:\d{2}$'
-            
+            # 尝试解析标准时间格式
             if re.match(pattern1, timeStr):
-                return timeStr
+                # 如果格式完整，直接使用
+                g_time = timeStr
             elif re.match(pattern2, timeStr):
-                return timeStr + ":00"
-                
-            # 处理中文时间格式
-            if '点' in timeStr or '分' in timeStr or '秒' in timeStr:
-                # 预处理时间字符串
-                content = timeStr
-                for word in ['早上', '上午', '中午', '下午', '晚上']:
-                    content = content.replace(word, '')
-                content = content.replace("点", ":").replace("分", ":").replace("秒", "")
-                parts = content.split(":")
-                
-                # 中文数字转换字典
-                digits = {
-                    '零':0, '一':1, '二':2, '三':3, '四':4, '五':5, '六':6, '七':7, '八':8, '九':9, '十':10,
-                    '十一':11, '十二':12, '十三':13, '十四':14, '十五':15, '十六':16, '十七':17, '十八':18, '十九':19, '二十':20,
-                    '二十一':21, '二十二':22, '二十三':23, '半':30
-                }
-                
-                # 处理时分秒
-                hour = minute = second = "00"
-                
+                # 如果只有时分，添加秒
+                g_time = f"{timeStr}:00"
+            else:
+                # 处理中文时间描述
                 try:
+                    # 预处理时间字符串
+                    content = timeStr.replace("早上", "").replace("上午", "").replace("中午", "").replace("下午", "").replace("晚上", "")
+                    content = content.replace("点", ":").replace("分", ":").replace("秒", "")
+                    
+                    # 中文数字映射
+                    digits = {
+                        '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+                        '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15, '十六': 16, '十七': 17, '十八': 18, '十九': 19, '二十': 20,
+                        '二十一': 21, '二十二': 22, '二十三': 23, '二十四': 24
+                    }
+                    
+                    # 分解时间部分
+                    parts = content.split(":")
+                    hour = "0"
+                    minute = "0"
+                    second = "0"
+                    
                     # 处理小时
                     if len(parts) > 0 and parts[0]:
                         if parts[0] in digits:
-                            hour = str(digits[parts[0]]).zfill(2)
+                            hour = str(digits[parts[0]])
                         else:
-                            hour = str(int(parts[0])).zfill(2)
-                            
+                            try:
+                                hour = str(int(parts[0]))
+                            except:
+                                logger.warning(f"无法解析小时: {parts[0]}")
+                                return ""
+                                
                     # 处理分钟
                     if len(parts) > 1 and parts[1]:
                         if parts[1] in digits:
-                            minute = str(digits[parts[1]]).zfill(2)
+                            minute = str(digits[parts[1]])
                         else:
-                            minute = str(int(parts[1])).zfill(2)
-                            
+                            try:
+                                minute = str(int(parts[1]))
+                            except:
+                                minute = "0"
+                                
                     # 处理秒
                     if len(parts) > 2 and parts[2]:
                         if parts[2] in digits:
-                            second = str(digits[parts[2]]).zfill(2)
+                            second = str(digits[parts[2]])
                         else:
-                            second = str(int(parts[2])).zfill(2)
-                            
+                            try:
+                                second = str(int(parts[2]))
+                            except:
+                                second = "0"
+                                
                     # 处理时间段
-                    if "中午" in timeStr and int(hour) < 12:
-                        hour = "12"
-                    elif ("下午" in timeStr or "晚上" in timeStr) and int(hour) < 12:
-                        hour = str(int(hour) + 12).zfill(2)
-                        
-                    # 验证时间有效性
-                    time_str = f"{hour}:{minute}:{second}"
-                    datetime.strptime(time_str, "%H:%M:%S")
+                    if "中午" in timeStr:
+                        if int(hour) < 12:
+                            hour = "12"
+                    elif "下午" in timeStr or "晚上" in timeStr:
+                        if int(hour) < 12:
+                            hour = str(int(hour) + 12)
+                            
+                    # 格式化时间
+                    hour = f"0{hour}" if int(hour) < 10 else hour
+                    minute = f"0{minute}" if int(minute) < 10 else minute
+                    second = f"0{second}" if int(second) < 10 else second
                     
-                    if self.debug:
-                        logging.debug(f"[get_time] 转换中文时间: {timeStr} -> {time_str}")
-                        
-                    return time_str
+                    g_time = f"{hour}:{minute}:{second}"
                     
-                except (ValueError, KeyError) as e:
-                    if self.debug:
-                        logging.debug(f"[get_time] 时间转换发生异常: {timeStr}, 错误: {str(e)}")
+                except Exception as e:
+                    logger.warning(f"解析中文时间失败: {str(e)}")
                     return ""
                     
-            # 如果所有方法都失败了，尝试用arrow解析
-            try:
-                time_obj = arrow.get(timeStr)
-                return time_obj.format("HH:mm:ss")
-            except:
-                if self.debug:
-                    logging.debug(f"[get_time] Arrow时间解析失败: {timeStr}")
-                return ""
-                
+            logger.debug(f"转换时间: {timeStr} -> {g_time}")
+            
+            # 验证最终时间格式
+            if re.match(pattern1, g_time):
+                return g_time
             return ""
             
         except Exception as e:
-            if self.debug:
-                logging.debug(f"[get_time] 时间转换错误: {str(e)}")
+            logger.error(f"时间转换错误: {str(e)}")
             return ""
     
     # 是否 cron表达式
@@ -1084,7 +1042,7 @@ class TimeTaskModel:
                     for room in rooms:
                         logger.warning(f"  - {room.get('nickname')}")
                 return tempRoomId
-                        
+                    
             except Exception as e:
                 logger.error(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
                 logger.error(f"[{channel_name}通道] 错误详情：", exc_info=True)
@@ -1156,94 +1114,3 @@ class CleanFiles:
                         logger.error(f"获取文件时间失败 {file_path}: {str(e)}")
         except Exception as e:
             logger.error(f"清理过期文件出错: {str(e)}")
-
-# 示例：任务调度器（需要根据实际情况进行调整）
-class TaskScheduler:
-    def __init__(self, excel_tool: ExcelTool):
-        self.excel_tool = excel_tool
-        self.running = True
-        self.lock = threading.Lock()
-        self.load_tasks()
-    
-    def load_tasks(self):
-        data = self.excel_tool.readExcel()
-        self.tasks = [TimeTaskModel(item, None, True, True) for item in data]
-        logger.info(f"加载了 {len(self.tasks)} 个任务")
-    
-    def start(self):
-        scheduler_thread = threading.Thread(target=self.run_scheduler)
-        scheduler_thread.setDaemon(True)
-        scheduler_thread.start()
-        logger.info("任务调度器已启动")
-    
-    def run_scheduler(self):
-        while self.running:
-            with self.lock:
-                for task in self.tasks:
-                    if task.enable and not task.is_today_consumed:
-                        if task.isCron_time():
-                            # cron任务处理
-                            self.handle_cron_task(task)
-                        else:
-                            # 非cron任务处理
-                            self.handle_regular_task(task)
-            time.sleep(30)  # 每30秒检查一次
-
-    def handle_regular_task(self, task: TimeTaskModel):
-        if task.is_today():
-            now = arrow.now()
-            task_time = arrow.get(now.format('YYYY-MM-DD') + ' ' + task.timeStr, 'YYYY-MM-DD HH:mm:ss')
-            
-            # 处理不带秒的时间
-            if len(task.timeStr.split(':')) == 2:
-                task_time = task_time.replace(second=0)
-            
-            # 如果任务时间已经过去但未执行，则立即执行
-            if now >= task_time and not task.is_today_consumed:
-                self.execute_task(task)
-                task.is_today_consumed = True
-                self.update_task_in_excel(task)
-                logger.info(f"立即执行已过时的任务: {task.taskId}")
-            elif task.is_nowTime()[0] and not task.is_today_consumed:
-                self.execute_task(task)
-                task.is_today_consumed = True
-                self.update_task_in_excel(task)
-                logger.info(f"执行任务: {task.taskId}")
-    
-    def handle_cron_task(self, task: TimeTaskModel):
-        current_time = arrow.now().format('HH:mm')
-        if current_time in task.cron_today_times and not task.is_today_consumed:
-            self.execute_task(task)
-            task.is_today_consumed = True
-            self.update_task_in_excel(task)
-            logger.info(f"执行cron任务: {task.taskId}")
-    
-    def execute_task(self, task: TimeTaskModel):
-        # 这里实现任务的具体执行逻辑
-        logger.info(f"执行任务 {task.taskId}: {task.eventStr}")
-        # 示例：发送消息
-        # send_message(task.toUser_id, task.eventStr)
-    
-    def update_task_in_excel(self, task: TimeTaskModel):
-        # 更新任务的消费状态到Excel
-        self.excel_tool.write_columnValue_withTaskId_toExcel(task.taskId, 14, "1")  # 假设第14列是消费状态
-    
-    def stop(self):
-        self.running = False
-        logger.info("任务调度器已停止")
-
-# 示例：如何使用上述类
-if __name__ == "__main__":
-    excel_tool = ExcelTool()
-    excel_tool.create_excel()
-    
-    scheduler = TaskScheduler(excel_tool)
-    scheduler.start()
-    
-    # 主线程继续运行，或者添加其他逻辑
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        scheduler.stop()
-        logger.info("程序已终止")
