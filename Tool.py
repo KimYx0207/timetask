@@ -652,9 +652,26 @@ class TimeTaskModel:
     #判断是否未来日期    
     def is_featureDay(self):
         """判断是否未来日期"""
-        #cron   
+        # cron 表达式任务总是返回 True
         if self.isCron_time():
             return True
+
+        tempStr = self.circleTimeStr
+
+        # 对于"每天"和"工作日"这样的周期性任务,永远返回 True
+        if tempStr in ["每天", "工作日"]:
+            return True
+
+        # 对于每周X的任务,也返回 True
+        if tempStr.startswith('每周') or tempStr.startswith('每星期'):
+            return True
+
+        # 对于具体日期,判断是否是未来日期
+        if self.is_valid_date(tempStr):
+            return arrow.get(tempStr, 'YYYY-MM-DD').date() > arrow.now().date()
+
+        return False
+
         
         tempStr = self.circleTimeStr
         
@@ -674,35 +691,36 @@ class TimeTaskModel:
     
     #判断是否今天    
     def is_today(self):
-        """判断是否今天"""
+        """判断任务是否今天"""
         try:
             tempStr = self.circleTimeStr
-            
-            # 对于"每天",永远返回True
+
+            # 对于"每天",永远返回 True
             if tempStr == "每天":
                 return True
-                
+
             # 对于"工作日",判断今天是否是工作日(周一至周五)
             if tempStr == "工作日":
                 today = arrow.now()
-                return 0 <= today.weekday() <= 4  # 周一到周五返回True
-                
+                return 0 <= today.weekday() <= 4  # 周一到周五返回 True
+
             # 处理每周X的格式
             if tempStr.startswith('每周') or tempStr.startswith('每星期'):
                 weekday = tempStr[-1]  # 获取最后一个字符
                 return self.is_today_weekday(weekday)
-                
+
             # 处理具体日期
             if self.is_valid_date(tempStr):
                 today = arrow.now().format('YYYY-MM-DD')
                 return tempStr == today
-                
+
             return False
-                
+
         except Exception as e:
             if self.debug:
                 logging.debug(f"检查任务日期时发生错误: {str(e)}")
             return False
+
     
     #判断是否今天的星期数    
     def is_today_weekday(self, weekday_str):
@@ -723,19 +741,19 @@ class TimeTaskModel:
         """检查日期格式是否正确"""
         if not date_string:
             return False
-            
-        # 处理特殊日期关键字
+
+        # 不再将'每天'等视为有效日期
         if date_string in ['今天', '明天', '后天', '每天', '工作日']:
-            return True
-            
-        # 处理每周X的格式
+            return False
+
+        # 不再将每周X的格式视为有效日期
         if date_string.startswith('每周') or date_string.startswith('每星期'):
-            return True
-            
-        # 处理cron表达式
+            return False
+
+        # 不再将cron表达式视为有效日期
         if date_string.startswith("cron["):
-            return True
-            
+            return False
+
         try:
             # 尝试解析完整时间戳格式 YYYY-MM-DD HH:mm:ss
             datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S')
@@ -749,6 +767,7 @@ class TimeTaskModel:
                 if self.debug:
                     logging.debug(f"日期格式验证失败: {date_string}")
                 return False
+
 
     #获取周期
     def get_cicleDay(self, circleStr):
@@ -951,6 +970,7 @@ class TimeTaskModel:
             tempValue = tempValue.replace("Cron[", "")
             tempValue = tempValue.replace("]", "")
             return tempValue
+
     
     #是否 私聊制定群任务
     def isPerson_makeGrop(self):
