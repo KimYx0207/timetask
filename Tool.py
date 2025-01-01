@@ -672,8 +672,6 @@ class TimeTaskModel:
             if self.is_valid_date(item_circle):
                 return item_circle == current_date
                 
-            # 只在日期格式不匹配时输出一条警告日志
-            logger.warning(f"任务 {self.taskId} 的日期格式 '{item_circle}' 不匹配任何规则")
             return False
             
         except Exception as e:
