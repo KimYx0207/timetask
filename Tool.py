@@ -586,10 +586,15 @@ class TimeTaskModel:
             current_time_str = current_time.format('HH:mm')
             return current_time_str in self.cron_today_times, current_time_str
         else:    
-            #对比精准到分（忽略秒）
+            #对比时间（允许5分钟的误差）
             current_time = arrow.now().replace(second=0, microsecond=0)
             task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0)
-            is_now = task_time.time() == current_time.time()
+            
+            # 计算时间差（分钟）
+            time_diff = (current_time - task_time).total_seconds() / 60
+            # 如果时间差在5分钟以内，认为是当前时间
+            is_now = abs(time_diff) <= 5
+            
             return is_now, current_time.format('HH:mm')
     
     #判断是否未来时间    
