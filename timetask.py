@@ -385,22 +385,18 @@ class TimeTask(Plugin):
 
         if isGroup:
             # 设置群聊相关信息
-            content_dict["from_user_id"] = model.fromUser_id  # 发送者ID
-            content_dict["from_user_nickname"] = model.fromUser  # 发送者昵称
+            content_dict["from_user_id"] = other_user_id  # 群ID
+            content_dict["from_user_nickname"] = groupTitle  # 群名称
             content_dict["actual_user_id"] = model.fromUser_id  # 实际发送者ID
             content_dict["actual_user_nickname"] = model.fromUser  # 实际发送者昵称
-            content_dict["to_user_id"] = other_user_id  # 群ID
-            content_dict["to_user_nickname"] = groupTitle  # 群名称
-            # 设置 session_id 为群名称，以便 summary 插件正确识别群聊消息
+            # 设置 session_id 为群名称，以便 summary 插件识别
             content_dict["session_id"] = groupTitle
         else:
             # 设置私聊相关信息
             content_dict["from_user_id"] = model.fromUser_id
             content_dict["from_user_nickname"] = model.fromUser
-            content_dict["to_user_id"] = other_user_id
-            content_dict["to_user_nickname"] = model.other_user_nickname
-            # 设置 session_id 为用户昵称
-            content_dict["session_id"] = model.other_user_nickname
+            # 设置 session_id 为用户ID
+            content_dict["session_id"] = other_user_id
 
         msg: ChatMessage = ChatMessage(content_dict)
         # 信息映射
