@@ -919,9 +919,29 @@ class TimeTaskModel:
         if len(groupTitle) <= 0:
               return ""
               
-        #itchat - 直接返回群名称
+        #itchat - 返回群名称，但需要先验证群是否存在
         if channel_name == "wx":
-            return groupTitle
+            try:
+                #群聊处理       
+                chatrooms = itchat.get_chatrooms(update=True)  # 强制更新群列表
+                if not chatrooms:
+                    # 如果获取失败，等待1秒后重试一次
+                    time.sleep(1)
+                    chatrooms = itchat.get_chatrooms(update=True)
+                
+                #获取群聊
+                for chatroom in chatrooms:
+                    NickName = chatroom["NickName"]
+                    # 使用精确匹配
+                    if NickName == groupTitle:
+                        return groupTitle  # 找到群后返回群名称
+                
+                logger.error(f"[{channel_name}] 未找到群【{groupTitle}】，当前共有 {len(chatrooms)} 个群")
+                return ""
+                    
+            except Exception as e:
+                logger.error(f"[{channel_name}] 通过群标题获取群ID时发生错误：{str(e)}")
+                return ""
 
         elif channel_name == "ntchat":
             tempRoomId = ""
