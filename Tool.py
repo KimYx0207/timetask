@@ -644,13 +644,8 @@ class TimeTaskModel:
             
             print(f"[TimeTask Debug] 任务 {self.taskId} 检查日期: current_date={current_date}, item_circle={item_circle}")
             
-            # 如果任务日期为空，说明是每天执行的任务
-            if not item_circle or item_circle.strip() == "":
-                print(f"[TimeTask Debug] 任务 {self.taskId} 日期为空，视为每天执行")
-                return True
-                
-            # 直接判断是否包含"每天"
-            if "每天" in item_circle:
+            # 如果任务日期为空或者包含"每天"，视为每天执行的任务
+            if not item_circle or item_circle.strip() == "" or "每天" in item_circle:
                 print(f"[TimeTask Debug] 任务 {self.taskId} 是每天执行的任务")
                 return True
                 
