@@ -123,9 +123,7 @@ class TaskManager(object):
             #将任务数组 更新为 待执行数组； 当前任务在下面执行消费逻辑
             self.timeTasks = featureArray
             if self.debug:
-                logging.debug(f"内存任务更新：原任务列表 -> 待执行任务列表")
-                logging.debug(f"原任务ID列表：{timeTask_ids}")
-                logging.debug(f"待执行任务ID列表：{featureArray_ids}")
+                logger.debug("内存任务更新：原任务列表 -> 待执行任务列表")
         
         #当前无待消费任务     
         if len(currentExpendArray) <= 0:
@@ -159,7 +157,7 @@ class TaskManager(object):
                     f.write(current_timestamp)
 
             except Exception as e:
-                logging.error(f"处理任务锁时出错: {str(e)}")
+                logger.error(f"处理任务锁时出错: {str(e)}")
                 continue
 
         # 清理过期的锁文件（保留最近30分钟的）
@@ -174,13 +172,12 @@ class TaskManager(object):
                     if (current_time - file_mtime).total_seconds() > 1800:  # 30分钟 = 1800秒
                         os.remove(file_path)
                         if self.debug:
-                            logging.debug(f"已删除过期锁文件: {file_path}")
+                            logger.debug(f"已删除过期锁文件: {file_path}")
                 except Exception as e:
-                    if self.debug:
-                        logging.debug(f"处理锁文件时出错 {lock_file}: {str(e)}")
+                    logger.error(f"处理锁文件时出错 {lock_file}: {str(e)}")
                     continue
         except Exception as e:
-            logging.error(f"清理过期锁文件时出错: {str(e)}")
+            logger.error(f"清理过期锁文件时出错: {str(e)}")
 
         # 消费当前task
         if len(currentExpendArray) > 0:

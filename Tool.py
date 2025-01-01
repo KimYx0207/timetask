@@ -634,7 +634,6 @@ class TimeTaskModel:
         try:
             # cron表达式处理
             if self.isCron_time():
-                logger.debug(f"任务 {self.taskId} 是cron表达式任务")
                 return True 
             
             # 当前时间
@@ -642,50 +641,37 @@ class TimeTaskModel:
             # 轮询信息
             item_circle = self.circleTimeStr
             
-            logger.debug(f"任务 {self.taskId} 检查日期: current_date={current_date}, item_circle={item_circle}")
-            
             # 1. 首先检查是否为空
             if not item_circle or item_circle.strip() == "":
-                logger.debug(f"任务 {self.taskId} 日期为空，视为每天执行")
                 return True
             
             # 2. 检查是否包含"每天"关键字
             if "每天" in item_circle:
-                logger.debug(f"任务 {self.taskId} 是每天执行的任务")
                 return True
             
             # 3. 检查是否为cycle_每天格式
             if item_circle == "cycle_每天":
-                logger.debug(f"任务 {self.taskId} 是每天执行的任务")
                 return True
             
             # 4. 处理其他周期性任务标记
             if item_circle.startswith("cycle_"):
                 cycle_type = item_circle.replace("cycle_", "")
-                logger.debug(f"任务 {self.taskId} 是周期性任务: {cycle_type}")
                 
                 if "每周" in cycle_type or "每星期" in cycle_type:
-                    result = self.is_today_weekday(cycle_type)
-                    logger.debug(f"任务 {self.taskId} 是每周任务，今天{'' if result else '不'}是执行日")
-                    return result
+                    return self.is_today_weekday(cycle_type)
                     
                 elif cycle_type == "工作日":
                     # 判断星期几（0-6，0是周一）
                     weekday = arrow.now().weekday()
                     # 判断是否是工作日（周一到周五）
-                    result = weekday < 5
-                    logger.debug(f"任务 {self.taskId} 是工作日任务，今天是周{weekday+1}，{'' if result else '不'}是工作日")
-                    return result
+                    return weekday < 5
                     
                 return False
                 
             # 5. 处理具体日期格式
             if self.is_valid_date(item_circle):
-                result = item_circle == current_date
-                logger.debug(f"任务 {self.taskId} 是具体日期任务，日期{'' if result else '不'}匹配")
-                return result
+                return item_circle == current_date
                 
-            logger.debug(f"任务 {self.taskId} 日期格式不匹配任何规则")
             return False
             
         except Exception as e:
