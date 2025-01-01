@@ -595,11 +595,11 @@ class TimeTaskModel:
             if current_time.format('HH:mm') == task_time.format('HH:mm'):
                 return True, current_time.format('HH:mm')
             
-            # 计算时间差（分钟）
-            time_diff = (current_time - task_time).total_seconds() / 60
-            
             # 如果当前时间比任务时间晚，且差距在1分钟内，认为是当前时间
+            time_diff = (current_time - task_time).total_seconds() / 60
             is_now = 0 <= time_diff <= 1
+            
+            logger.debug(f"时间比较：当前时间={current_time.format('HH:mm:ss')}, 任务时间={task_time.format('HH:mm:ss')}, 时间差={time_diff}分钟, 是否执行={is_now}")
             
             return is_now, current_time.format('HH:mm')
     
@@ -657,14 +657,10 @@ class TimeTaskModel:
                 return True
             
             # 2. 检查是否包含"每天"关键字
-            if "每天" in item_circle:
+            if item_circle == "每天" or item_circle == "cycle_每天":
                 return True
             
-            # 3. 检查是否为cycle_每天格式
-            if item_circle == "cycle_每天":
-                return True
-            
-            # 4. 处理其他周期性任务标记
+            # 3. 处理其他周期性任务标记
             if item_circle.startswith("cycle_"):
                 cycle_type = item_circle.replace("cycle_", "")
                 
@@ -679,7 +675,16 @@ class TimeTaskModel:
                     
                 return False
                 
-            # 5. 处理具体日期格式
+            # 4. 处理每周X格式（不带cycle_前缀）
+            if "每周" in item_circle or "每星期" in item_circle:
+                return self.is_today_weekday(item_circle)
+                
+            # 5. 处理工作日（不带cycle_前缀）
+            if item_circle == "工作日":
+                weekday = arrow.now().weekday()
+                return weekday < 5
+                
+            # 6. 处理具体日期格式
             if self.is_valid_date(item_circle):
                 return item_circle == current_date
                 
@@ -729,16 +734,18 @@ class TimeTaskModel:
                 return circleStr
             
             # 处理周期性日期
-            if circleStr == "每天":
-                return "cycle_每天"
+            if circleStr == "每天" or circleStr == "cycle_每天":
+                return "每天"
             
-            if circleStr in ["每周", "工作日"]:
-                return f"cycle_{circleStr}"
+            if circleStr in ["每周", "工作日"] or circleStr in ["cycle_每周", "cycle_工作日"]:
+                return circleStr.replace("cycle_", "")
             
             # 处理每周X
-            if circleStr in ["每周一", "每周二", "每周三", "每周四", "每周五", "每周六","每周日","每周天", 
-                           "每星期一", "每星期二","每星期三", "每星期四", "每星期五","每星期六", "每星期日", "每星期天"]:
-                return f"cycle_{circleStr}"
+            if any(circleStr.endswith(x) for x in ["一", "二", "三", "四", "五", "六", "日", "天"]):
+                if circleStr.startswith("cycle_"):
+                    circleStr = circleStr.replace("cycle_", "")
+                if circleStr.startswith("每周") or circleStr.startswith("每星期"):
+                    return circleStr
             
             # 处理中文日期
             if circleStr in ['今天', '明天', '后天']:
