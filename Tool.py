@@ -644,21 +644,27 @@ class TimeTaskModel:
             
             print(f"[TimeTask Debug] 任务 {self.taskId} 检查日期: current_date={current_date}, item_circle={item_circle}")
             
-            # 如果任务日期为空或者包含"每天"，视为每天执行的任务
-            if not item_circle or item_circle.strip() == "" or "每天" in item_circle:
+            # 1. 首先检查是否为空
+            if not item_circle or item_circle.strip() == "":
+                print(f"[TimeTask Debug] 任务 {self.taskId} 日期为空，视为每天执行")
+                return True
+            
+            # 2. 检查是否包含"每天"关键字
+            if "每天" in item_circle:
                 print(f"[TimeTask Debug] 任务 {self.taskId} 是每天执行的任务")
                 return True
-                
-            # 处理周期性任务标记
+            
+            # 3. 检查是否为cycle_每天格式
+            if item_circle == "cycle_每天":
+                print(f"[TimeTask Debug] 任务 {self.taskId} 是每天执行的任务")
+                return True
+            
+            # 4. 处理其他周期性任务标记
             if item_circle.startswith("cycle_"):
                 cycle_type = item_circle.replace("cycle_", "")
                 print(f"[TimeTask Debug] 任务 {self.taskId} 是周期性任务: {cycle_type}")
                 
-                if cycle_type == "每天":
-                    print(f"[TimeTask Debug] 任务 {self.taskId} 是每天执行的任务")
-                    return True
-                    
-                elif "每周" in cycle_type or "每星期" in cycle_type:
+                if "每周" in cycle_type or "每星期" in cycle_type:
                     result = self.is_today_weekday(cycle_type)
                     print(f"[TimeTask Debug] 任务 {self.taskId} 是每周任务，今天{'' if result else '不'}是执行日")
                     return result
@@ -673,7 +679,7 @@ class TimeTaskModel:
                     
                 return False
                 
-            # 处理具体日期格式
+            # 5. 处理具体日期格式
             if self.is_valid_date(item_circle):
                 result = item_circle == current_date
                 print(f"[TimeTask Debug] 任务 {self.taskId} 是具体日期任务，日期{'' if result else '不'}匹配")
@@ -714,6 +720,11 @@ class TimeTaskModel:
         """获取格式化的日期"""
         if not circleStr:
             return ""
+            
+        g_circle = ""
+        pattern1 = r'^\d{4}-\d{2}-\d{2}$'
+        pattern2 = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$'
+        pattern3 = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
         
         try:
             # 如果是cron表达式，直接返回
@@ -721,7 +732,7 @@ class TimeTaskModel:
                 return circleStr
             
             # 处理周期性日期
-            if "每天" in circleStr:
+            if circleStr == "每天":
                 return "cycle_每天"
             
             if circleStr in ["每周", "工作日"]:
@@ -736,31 +747,34 @@ class TimeTaskModel:
             if circleStr in ['今天', '明天', '后天']:
                 today = arrow.now('local')
                 if circleStr == '今天':
-                    return today.format('YYYY-MM-DD')
+                    g_circle = today.format('YYYY-MM-DD')
                 elif circleStr == '明天':
-                    return today.shift(days=1).format('YYYY-MM-DD')
+                    g_circle = today.shift(days=1).format('YYYY-MM-DD')
                 elif circleStr == '后天':
-                    return today.shift(days=2).format('YYYY-MM-DD')
+                    g_circle = today.shift(days=2).format('YYYY-MM-DD')
+                return g_circle
             
             # 尝试解析标准日期格式
-            pattern1 = r'^\d{4}-\d{2}-\d{2}$'
-            pattern2 = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$'
-            pattern3 = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
-            
             if re.match(pattern1, circleStr):
-                return circleStr
+                # 如果只有日期，添加时间
+                g_circle = f"{circleStr} 00:00:00"
             elif re.match(pattern2, circleStr):
-                return circleStr.split(' ')[0]
+                # 如果有日期和时分，添加秒
+                g_circle = f"{circleStr}:00"
             elif re.match(pattern3, circleStr):
-                return circleStr.split(' ')[0]
-            
-            # 尝试智能解析日期
-            try:
-                parsed_date = arrow.get(circleStr)
-                return parsed_date.format('YYYY-MM-DD')
-            except Exception as e:
-                print(f"智能解析日期失败: {str(e)}")
-                return ""
+                # 如果格式完整，直接使用
+                g_circle = circleStr
+            else:
+                # 尝试智能解析日期
+                try:
+                    parsed_date = arrow.get(circleStr)
+                    g_circle = parsed_date.format('YYYY-MM-DD HH:mm:ss')
+                except Exception as e:
+                    print(f"智能解析日期失败: {str(e)}")
+                    return ""
+                    
+            print(f"转换日期: {circleStr} -> {g_circle}")
+            return g_circle
             
         except Exception as e:
             print(f"日期转换错误: {str(e)}")
