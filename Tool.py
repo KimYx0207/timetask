@@ -20,7 +20,7 @@ import threading
 import logging
 
 # 日志配置
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 try:
@@ -96,16 +96,16 @@ class ExcelTool(object):
             ws1.column_dimensions["M"].width = width_value_three     
                     
             wb.save(workbook_file_path)
-            print("定时Excel创建成功，文件路径为：{}".format(workbook_file_path))
+            logger.info("定时Excel创建成功，文件路径为：{}".format(workbook_file_path))
             
         else:
             wb = load_workbook(workbook_file_path)
             if not history_sheet_name in wb.sheetnames:
                 wb.create_sheet(history_sheet_name, 1)
                 wb.save(workbook_file_path)
-                print(f"创建sheet: {history_sheet_name}")
+                logger.debug(f"创建sheet: {history_sheet_name}")
             else:
-                print("timeTask文件已存在, 无需创建")
+                logger.debug("timeTask文件已存在, 无需创建")
                 
 
     # 读取内容,返回元组列表
@@ -120,7 +120,7 @@ class ExcelTool(object):
             data = list(ws.values)
             #print(data)
             if data is None or len(data) == 0:
-                print("[timeTask] 数据库timeTask任务列表数据为空")
+                logger.debug("[timeTask] 数据库timeTask任务列表数据为空")
                 
             return data
         else:
@@ -428,7 +428,7 @@ class TimeTaskModel:
             tempTimeStr = timeValue
         else:
             # 其他类型
-            print("其他类型时间，暂不支持")
+            logger.debug("不支持的时间格式")
         self.timeStr = tempTimeStr
         
         #日期
@@ -441,7 +441,7 @@ class TimeTaskModel:
             tempDayStr = dayValue
         else:
             # 其他类型
-            print("其他类型时间，暂不支持")
+            logger.debug("不支持的时间格式")
         self.circleTimeStr = tempDayStr
         
         #事件
@@ -634,7 +634,7 @@ class TimeTaskModel:
         try:
             # cron表达式处理
             if self.isCron_time():
-                print(f"[TimeTask Debug] 任务 {self.taskId} 是cron表达式任务")
+                logger.debug(f"任务 {self.taskId} 是cron表达式任务")
                 return True 
             
             # 当前时间
@@ -642,31 +642,31 @@ class TimeTaskModel:
             # 轮询信息
             item_circle = self.circleTimeStr
             
-            print(f"[TimeTask Debug] 任务 {self.taskId} 检查日期: current_date={current_date}, item_circle={item_circle}")
+            logger.debug(f"任务 {self.taskId} 检查日期: current_date={current_date}, item_circle={item_circle}")
             
             # 1. 首先检查是否为空
             if not item_circle or item_circle.strip() == "":
-                print(f"[TimeTask Debug] 任务 {self.taskId} 日期为空，视为每天执行")
+                logger.debug(f"任务 {self.taskId} 日期为空，视为每天执行")
                 return True
             
             # 2. 检查是否包含"每天"关键字
             if "每天" in item_circle:
-                print(f"[TimeTask Debug] 任务 {self.taskId} 是每天执行的任务")
+                logger.debug(f"任务 {self.taskId} 是每天执行的任务")
                 return True
             
             # 3. 检查是否为cycle_每天格式
             if item_circle == "cycle_每天":
-                print(f"[TimeTask Debug] 任务 {self.taskId} 是每天执行的任务")
+                logger.debug(f"任务 {self.taskId} 是每天执行的任务")
                 return True
             
             # 4. 处理其他周期性任务标记
             if item_circle.startswith("cycle_"):
                 cycle_type = item_circle.replace("cycle_", "")
-                print(f"[TimeTask Debug] 任务 {self.taskId} 是周期性任务: {cycle_type}")
+                logger.debug(f"任务 {self.taskId} 是周期性任务: {cycle_type}")
                 
                 if "每周" in cycle_type or "每星期" in cycle_type:
                     result = self.is_today_weekday(cycle_type)
-                    print(f"[TimeTask Debug] 任务 {self.taskId} 是每周任务，今天{'' if result else '不'}是执行日")
+                    logger.debug(f"任务 {self.taskId} 是每周任务，今天{'' if result else '不'}是执行日")
                     return result
                     
                 elif cycle_type == "工作日":
@@ -674,7 +674,7 @@ class TimeTaskModel:
                     weekday = arrow.now().weekday()
                     # 判断是否是工作日（周一到周五）
                     result = weekday < 5
-                    print(f"[TimeTask Debug] 任务 {self.taskId} 是工作日任务，今天是周{weekday+1}，{'' if result else '不'}是工作日")
+                    logger.debug(f"任务 {self.taskId} 是工作日任务，今天是周{weekday+1}，{'' if result else '不'}是工作日")
                     return result
                     
                 return False
@@ -682,14 +682,14 @@ class TimeTaskModel:
             # 5. 处理具体日期格式
             if self.is_valid_date(item_circle):
                 result = item_circle == current_date
-                print(f"[TimeTask Debug] 任务 {self.taskId} 是具体日期任务，日期{'' if result else '不'}匹配")
+                logger.debug(f"任务 {self.taskId} 是具体日期任务，日期{'' if result else '不'}匹配")
                 return result
                 
-            print(f"[TimeTask Debug] 任务 {self.taskId} 日期格式不匹配任何规则")
+            logger.debug(f"任务 {self.taskId} 日期格式不匹配任何规则")
             return False
             
         except Exception as e:
-            print(f"[TimeTask Debug] 任务 {self.taskId} 检查日期时发生错误: {str(e)}")
+            logger.error(f"任务 {self.taskId} 检查日期时发生错误: {str(e)}")
             return False
     
     #判断是否今天的星期数    
@@ -773,11 +773,11 @@ class TimeTaskModel:
                     print(f"智能解析日期失败: {str(e)}")
                     return ""
                     
-            print(f"转换日期: {circleStr} -> {g_circle}")
+            logger.debug(f"转换日期: {circleStr} -> {g_circle}")
             return g_circle
             
         except Exception as e:
-            print(f"日期转换错误: {str(e)}")
+            logger.error(f"日期转换错误: {str(e)}")
             return ""
     
     def get_time(self, timeStr):
@@ -871,7 +871,7 @@ class TimeTaskModel:
                     print(f"解析中文时间失败: {str(e)}")
                     return ""
                     
-            print(f"转换时间: {timeStr} -> {g_time}")
+            logger.debug(f"转换时间: {timeStr} -> {g_time}")
             
             # 验证最终时间格式
             if re.match(pattern1, g_time):
@@ -879,7 +879,7 @@ class TimeTaskModel:
             return ""
             
         except Exception as e:
-            print(f"时间转换错误: {str(e)}")
+            logger.error(f"时间转换错误: {str(e)}")
             return ""
     
     #是否 cron表达式
@@ -928,7 +928,7 @@ class TimeTaskModel:
         if len(groupTitle) <= 0:
               return ""
               
-        print(f"[{channel_name}通道] 开始查找群【{groupTitle}】")
+        logger.debug(f"[{channel_name}] 开始查找群【{groupTitle}】")
         # 转换为小写以进行大小写不敏感匹配
         groupTitle_lower = groupTitle.lower()
         
@@ -939,30 +939,30 @@ class TimeTaskModel:
             try:
                 #群聊  
                 chatrooms = itchat.get_chatrooms(update=True)  # 添加update=True强制更新群列表
-                print(f"[{channel_name}通道] 当前共有 {len(chatrooms)} 个群")
+                logger.debug(f"[{channel_name}] 当前共有 {len(chatrooms)} 个群")
                 
                 #获取群聊
                 for chatroom in chatrooms:
                     #id
                     userName = chatroom["UserName"]
                     NickName = chatroom["NickName"]
-                    print(f"[{channel_name}通道] 正在检查群：{NickName}")
+                    logger.debug(f"[{channel_name}] 正在检查群：{NickName}")
                     # 转换为小写进行比较
                     nickName_lower = NickName.lower()
                     # 使用in而不是完全匹配，这样可以处理包含特殊字符的群名
                     if groupTitle_lower in nickName_lower or nickName_lower in groupTitle_lower:
                         tempRoomId = userName
-                        print(f"[{channel_name}通道] 找到匹配的群：{NickName}，ID：{userName}")
+                        logger.debug(f"[{channel_name}] 找到匹配的群：{NickName}，ID：{userName}")
                         break
                     
                 if not tempRoomId:
-                    print(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
+                    logger.debug(f"[{channel_name}] 未找到群【{groupTitle}】，当前所有群：")
                     for room in chatrooms:
-                        print(f"  - {room['NickName']}")
+                        logger.debug(f"  - {room['NickName']}")
                         
             except Exception as e:
-                print(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
-                print(f"[{channel_name}通道] 错误详情：", e)
+                logger.error(f"[{channel_name}] 通过群标题获取群ID时发生错误：{str(e)}")
+                logger.error(f"[{channel_name}] 错误详情：", e)
                 return ""
                 
             return tempRoomId
@@ -972,31 +972,31 @@ class TimeTaskModel:
             try:
                 #数据结构为字典数组
                 rooms = wechatnt.get_rooms()
-                print(f"[{channel_name}通道] 当前共有 {len(rooms)} 个群")
+                logger.debug(f"[{channel_name}] 当前共有 {len(rooms)} 个群")
                 
                 if len(rooms) > 0:
                     #遍历
                     for item in rooms:
                         roomId = item.get("wxid")
                         nickname = item.get("nickname")
-                        print(f"[{channel_name}通道] 正在检查群：{nickname}")
+                        logger.debug(f"[{channel_name}] 正在检查群：{nickname}")
                         # 转换为小写进行比较
                         nickname_lower = nickname.lower()
                         # 使用模糊匹配来处理特殊字符
                         if groupTitle_lower in nickname_lower or nickname_lower in groupTitle_lower:
                             tempRoomId = roomId
-                            print(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
+                            logger.debug(f"[{channel_name}] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
                             
                 if not tempRoomId:
-                    print(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
+                    logger.debug(f"[{channel_name}] 未找到群【{groupTitle}】，当前所有群：")
                     for room in rooms:
-                        print(f"  - {room.get('nickname')}")
+                        logger.debug(f"  - {room.get('nickname')}")
                 return tempRoomId
                         
             except Exception as e:
-                print(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
-                print(f"[{channel_name}通道] 错误详情：", e)
+                logger.error(f"[{channel_name}] 通过群标题获取群ID时发生错误：{str(e)}")
+                logger.error(f"[{channel_name}] 错误详情：", e)
                 return tempRoomId
 
         elif channel_name == "wework":
@@ -1004,35 +1004,35 @@ class TimeTaskModel:
             try:
                 # 数据结构为字典数组
                 rooms = wework.get_rooms().get("room_list")
-                print(f"[{channel_name}通道] 当前共有 {len(rooms)} 个群")
+                logger.debug(f"[{channel_name}] 当前共有 {len(rooms)} 个群")
                 
                 if len(rooms) > 0:
                     # 遍历
                     for item in rooms:
                         roomId = item.get("conversation_id")
                         nickname = item.get("nickname")
-                        print(f"[{channel_name}通道] 正在检查群：{nickname}")
+                        logger.debug(f"[{channel_name}] 正在检查群：{nickname}")
                         # 转换为小写进行比较
                         nickname_lower = nickname.lower()
                         # 使用模糊匹配来处理特殊字符
                         if groupTitle_lower in nickname_lower or nickname_lower in groupTitle_lower:
                             tempRoomId = roomId
-                            print(f"[{channel_name}通道] 找到匹配的群：{nickname}，ID：{roomId}")
+                            logger.debug(f"[{channel_name}] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
 
                 if not tempRoomId:
-                    print(f"[{channel_name}通道] 未找到群【{groupTitle}】，当前所有群：")
+                    logger.debug(f"[{channel_name}] 未找到群【{groupTitle}】，当前所有群：")
                     for room in rooms:
-                        print(f"  - {room.get('nickname')}")
+                        logger.debug(f"  - {room.get('nickname')}")
                 return tempRoomId
 
             except Exception as e:
-                print(f"[{channel_name}通道] 通过群标题获取群ID时发生错误：{str(e)}")
-                print(f"[{channel_name}通道] 错误详情：", e)
+                logger.error(f"[{channel_name}] 通过群标题获取群ID时发生错误：{str(e)}")
+                logger.error(f"[{channel_name}] 错误详情：", e)
                 return ""
 
         else:
-            print(f"[{channel_name}通道] 不支持通过群标题获取群ID，当前channel：{channel_name}")
+            logger.error(f"[{channel_name}] 不支持通过群标题获取群ID，当前channel：{channel_name}")
             return ""
 
 class CleanFiles:

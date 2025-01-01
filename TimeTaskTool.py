@@ -17,6 +17,8 @@ try:
 except Exception as e:
     print(f"未安装ntchat: {e}")
 
+logger = logging.getLogger(__name__)
+
 class TaskManager(object):
     
     def __init__(self, timeTaskFunc):
@@ -128,7 +130,7 @@ class TaskManager(object):
         #当前无待消费任务     
         if len(currentExpendArray) <= 0:
             if self.debug:
-                logging.debug("[timetask][定时检测]：当前时刻 - 无定时任务...")
+                logger.debug("[timetask] 当前时刻 - 无定时任务")
             return
         
         # 使用更精确的时间戳作为锁标识
@@ -148,7 +150,7 @@ class TaskManager(object):
                 # 尝试创建锁文件
                 if os.path.exists(lock_file):
                     if self.debug:
-                        logging.debug(f"任务 {task.taskId} 在当前时间 {current_timestamp} 已执行，跳过")
+                        logger.debug(f"任务 {task.taskId} 在当前时间 {current_timestamp} 已执行，跳过")
                     currentExpendArray.remove(task)
                     continue
 
@@ -182,7 +184,7 @@ class TaskManager(object):
 
         # 消费当前task
         if len(currentExpendArray) > 0:
-            logging.info(f"[timetask][定时检测]：当前时刻 - 存在定时任务, 执行消费 当前时刻任务")
+            logger.info("[timetask] 当前时刻 - 存在定时任务，执行消费")
             self.runTaskArray(currentExpendArray)
 
 
@@ -242,8 +244,13 @@ class TaskManager(object):
             
     #拉取Excel最新数据    
     def refreshDataFromExcel(self):
-        tempArray = ExcelTool().readExcel()
-        self.convetDataToModelArray(tempArray) 
+        try:
+            logger.debug("开始刷新Excel数据")
+            tempArray = ExcelTool().readExcel()
+            self.convetDataToModelArray(tempArray) 
+            logger.debug("Excel数据刷新完成")
+        except Exception as e:
+            logger.error(f"刷新Excel数据时发生错误：{str(e)}")
         
     #迁移历史任务   
     def moveTask_toHistory(self, modelArray):
@@ -434,38 +441,38 @@ class TaskManager(object):
             task_lock_key = f"{model.taskId}_{current_minute}"
             
             if self.debug:
-                logging.debug(f"准备执行任务 {model.taskId}")
-                logging.debug(f"当前时间: {current_minute}")
-                logging.debug(f"任务锁key: {task_lock_key}")
+                logger.debug(f"准备执行任务 {model.taskId}")
+                logger.debug(f"当前时间: {current_minute}")
+                logger.debug(f"任务锁key: {task_lock_key}")
             
             # 检查任务锁
             if hasattr(self, '_task_locks'):
                 if task_lock_key in self._task_locks:
                     if self.debug:
-                        logging.debug(f"任务 {model.taskId} 在 {current_minute} 已经执行过，跳过")
+                        logger.debug(f"任务 {model.taskId} 在 {current_minute} 已经执行过，跳过")
                     return
             else:
                 if self.debug:
-                    logging.debug(f"初始化任务锁集合")
+                    logger.debug(f"初始化任务锁集合")
                 self._task_locks = set()
             
             # 添加任务锁
             self._task_locks.add(task_lock_key)
             if self.debug:
-                logging.debug(f"已添加任务锁")
+                logger.debug(f"已添加任务锁")
             
             try:
                 #非cron，置为已消费
                 if not model.isCron_time():
                     if self.debug:
-                        logging.debug(f"非cron任务，标记为已消费")
+                        logger.debug(f"非cron任务，标记为已消费")
                     model.is_today_consumed = True
                     #置为消费
                     ExcelTool().write_columnValue_withTaskId_toExcel(model.taskId, 14, "1")
                 
                 if self.debug:
-                    logging.debug(f"开始执行任务: {model.taskId}")
-                    logging.debug(f"任务详情: {model.circleTimeStr} {model.timeStr} {model.eventStr}")
+                    logger.debug(f"开始执行任务: {model.taskId}")
+                    logger.debug(f"任务详情: {model.circleTimeStr} {model.timeStr} {model.eventStr}")
                 
                 #回调定时任务执行
                 if self.timeTaskFunc:
@@ -476,7 +483,7 @@ class TaskManager(object):
                 #任务消费
                 if not model.is_featureDay():
                     if self.debug:
-                        logging.debug(f"非未来任务，禁用该任务")
+                        logger.debug(f"非未来任务，禁用该任务")
                     obj = ExcelTool()
                     obj.write_columnValue_withTaskId_toExcel(model.taskId , 2, "0")
                     #刷新数据
@@ -487,13 +494,13 @@ class TaskManager(object):
                 if task_lock_key in self._task_locks:
                     self._task_locks.remove(task_lock_key)
                     if self.debug:
-                        logging.debug(f"已移除任务锁")
+                        logger.debug(f"已移除任务锁")
             
         except Exception as e:
-            logging.error(f"执行定时任务时发生错误：{str(e)}")
+            logger.error(f"执行定时任务时发生错误：{str(e)}")
             if self.debug:
                 import traceback
-                logging.debug(traceback.format_exc())
+                logger.debug(traceback.format_exc())
         
     #添加任务
     def addTask(self, taskModel: TimeTaskModel):
