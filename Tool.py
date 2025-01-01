@@ -577,6 +577,7 @@ class TimeTaskModel:
         if not tempTimeStr:
             return False, ""
             
+        # 如果时间格式是 HH:mm，补充秒数为00
         if tempTimeStr.count(":") == 1:
            tempTimeStr = tempTimeStr + ":00"
         
@@ -588,16 +589,19 @@ class TimeTaskModel:
         else:    
             #对比时间（允许前后1分钟的误差）
             current_time = arrow.now()  # 保留秒数
-            task_time = arrow.get(tempTimeStr, "HH:mm:ss")  # 保留秒数
             
-            # 将任务时间调整到今天
-            task_time = task_time.replace(year=current_time.year, 
-                                        month=current_time.month, 
-                                        day=current_time.day)
+            # 将任务时间解析为今天的时间
+            task_base = arrow.get(tempTimeStr, "HH:mm:ss")
+            task_time = current_time.replace(hour=task_base.hour, 
+                                          minute=task_base.minute, 
+                                          second=0)  # 任务时间的秒数总是设为0
             
             # 计算时间差（分钟）
             time_diff = (current_time - task_time).total_seconds() / 60
+            
             # 如果时间差在前后1分钟以内，认为是当前时间
+            # 对于未来时间，只要在1分钟内就立即执行
+            # 对于过去时间，只要在1分钟内也执行
             is_now = abs(time_diff) <= 1
             
             if self.debug:
