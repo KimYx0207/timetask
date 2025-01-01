@@ -79,7 +79,7 @@ class TaskManager(object):
     
     #时间检查
     def timeCheck(self):
-        
+        """检查并执行定时任务"""
         #检测是否重新登录了
         self.check_isRelogin()
         #重新登录、未登录，均跳过
@@ -103,7 +103,6 @@ class TaskManager(object):
         elif len(self.refreshTimeTask_identifier) > 0:
             self.refreshTimeTask_identifier = ""
             
-        
         #是否到了迁移历史任务 - 目标时间
         if self.is_targetTime(self.move_historyTask_time):
             #迁移过期任务
@@ -123,12 +122,10 @@ class TaskManager(object):
             #将任务数组 更新为 待执行数组； 当前任务在下面执行消费逻辑
             self.timeTasks = featureArray
             if self.debug:
-                logger.debug("内存任务更新：原任务列表 -> 待执行任务列表")
+                logger.debug("内存任务已更新为待执行任务列表")
         
         #当前无待消费任务     
         if len(currentExpendArray) <= 0:
-            if self.debug:
-                logger.debug("[timetask] 当前时刻 - 无定时任务")
             return
         
         # 使用更精确的时间戳作为锁标识
@@ -147,8 +144,6 @@ class TaskManager(object):
             try:
                 # 尝试创建锁文件
                 if os.path.exists(lock_file):
-                    if self.debug:
-                        logger.debug(f"任务 {task.taskId} 在当前时间 {current_timestamp} 已执行，跳过")
                     currentExpendArray.remove(task)
                     continue
 
@@ -171,8 +166,6 @@ class TaskManager(object):
                     
                     if (current_time - file_mtime).total_seconds() > 1800:  # 30分钟 = 1800秒
                         os.remove(file_path)
-                        if self.debug:
-                            logger.debug(f"已删除过期锁文件: {file_path}")
                 except Exception as e:
                     logger.error(f"处理锁文件时出错 {lock_file}: {str(e)}")
                     continue
@@ -181,7 +174,7 @@ class TaskManager(object):
 
         # 消费当前task
         if len(currentExpendArray) > 0:
-            logger.info("[timetask] 当前时刻 - 存在定时任务，执行消费")
+            logger.info(f"[timetask] 开始执行 {len(currentExpendArray)} 个定时任务")
             self.runTaskArray(currentExpendArray)
 
 
