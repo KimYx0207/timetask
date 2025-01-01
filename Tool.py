@@ -577,7 +577,6 @@ class TimeTaskModel:
         if not tempTimeStr:
             return False, ""
             
-        # 如果时间格式是 HH:mm，补充秒数为00
         if tempTimeStr.count(":") == 1:
            tempTimeStr = tempTimeStr + ":00"
         
@@ -588,24 +587,14 @@ class TimeTaskModel:
             return current_time_str in self.cron_today_times, current_time_str
         else:    
             #对比时间（允许前后1分钟的误差）
-            current_time = arrow.now()  # 保留秒数
-            
-            # 将任务时间解析为今天的时间
-            task_base = arrow.get(tempTimeStr, "HH:mm:ss")
-            task_time = current_time.replace(hour=task_base.hour, 
-                                          minute=task_base.minute, 
-                                          second=0)  # 任务时间的秒数总是设为0
+            current_time = arrow.now().replace(second=0, microsecond=0)
+            task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0)
             
             # 计算时间差（分钟）
             time_diff = (current_time - task_time).total_seconds() / 60
             
-            # 如果时间差在前后1分钟以内，认为是当前时间
-            # 对于未来时间，只要在1分钟内就立即执行
-            # 对于过去时间，只要在1分钟内也执行
-            is_now = abs(time_diff) <= 1
-            
-            if self.debug:
-                logger.debug(f"时间比较：当前时间={current_time.format('HH:mm:ss')}，任务时间={task_time.format('HH:mm:ss')}，时间差={time_diff}分钟")
+            # 如果当前时间比任务时间晚，且差距在1分钟内，认为是当前时间
+            is_now = 0 <= time_diff <= 1
             
             return is_now, current_time.format('HH:mm')
     
