@@ -915,8 +915,6 @@ class TimeTaskModel:
               return ""
               
         logger.debug(f"[{channel_name}] 开始查找群【{groupTitle}】")
-        # 转换为小写以进行大小写不敏感匹配
-        groupTitle_lower = groupTitle.lower()
         
         #itchat
         if channel_name == "wx":
@@ -933,10 +931,8 @@ class TimeTaskModel:
                     userName = chatroom["UserName"]
                     NickName = chatroom["NickName"]
                     logger.debug(f"[{channel_name}] 正在检查群：{NickName}")
-                    # 转换为小写进行比较
-                    nickName_lower = NickName.lower()
-                    # 使用in而不是完全匹配，这样可以处理包含特殊字符的群名
-                    if groupTitle_lower in nickName_lower or nickName_lower in groupTitle_lower:
+                    # 使用精确匹配
+                    if NickName == groupTitle:
                         tempRoomId = userName
                         logger.debug(f"[{channel_name}] 找到匹配的群：{NickName}，ID：{userName}")
                         break
@@ -966,10 +962,8 @@ class TimeTaskModel:
                         roomId = item.get("wxid")
                         nickname = item.get("nickname")
                         logger.debug(f"[{channel_name}] 正在检查群：{nickname}")
-                        # 转换为小写进行比较
-                        nickname_lower = nickname.lower()
-                        # 使用模糊匹配来处理特殊字符
-                        if groupTitle_lower in nickname_lower or nickname_lower in groupTitle_lower:
+                        # 使用精确匹配
+                        if nickname == groupTitle:
                             tempRoomId = roomId
                             logger.debug(f"[{channel_name}] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
@@ -998,10 +992,8 @@ class TimeTaskModel:
                         roomId = item.get("conversation_id")
                         nickname = item.get("nickname")
                         logger.debug(f"[{channel_name}] 正在检查群：{nickname}")
-                        # 转换为小写进行比较
-                        nickname_lower = nickname.lower()
-                        # 使用模糊匹配来处理特殊字符
-                        if groupTitle_lower in nickname_lower or nickname_lower in groupTitle_lower:
+                        # 使用精确匹配
+                        if nickname == groupTitle:
                             tempRoomId = roomId
                             logger.debug(f"[{channel_name}] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
