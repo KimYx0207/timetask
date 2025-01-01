@@ -919,7 +919,7 @@ class TimeTaskModel:
         if len(groupTitle) <= 0:
               return ""
               
-        #itchat - 返回群名称，但需要先验证群是否存在
+        #itchat - 返回群ID
         if channel_name == "wx":
             try:
                 #群聊处理       
@@ -929,14 +929,23 @@ class TimeTaskModel:
                     time.sleep(1)
                     chatrooms = itchat.get_chatrooms(update=True)
                 
+                logger.info(f"[{channel_name}] 开始查找群【{groupTitle}】")
                 #获取群聊
                 for chatroom in chatrooms:
                     NickName = chatroom["NickName"]
-                    # 使用精确匹配
-                    if NickName == groupTitle:
-                        return groupTitle  # 找到群后返回群名称
+                    # 移除所有空白字符和特殊字符后比较
+                    clean_nickname = ''.join(c for c in NickName if not c.isspace() and c.isprintable())
+                    clean_grouptitle = ''.join(c for c in groupTitle if not c.isspace() and c.isprintable())
+                    
+                    # 使用包含关系匹配
+                    if clean_grouptitle in clean_nickname or clean_nickname in clean_grouptitle:
+                        logger.info(f"[{channel_name}] 找到匹配的群：【{NickName}】，群ID：{chatroom['UserName']}")
+                        return chatroom["UserName"]  # 返回群ID而不是群名称
                 
                 logger.error(f"[{channel_name}] 未找到群【{groupTitle}】，当前共有 {len(chatrooms)} 个群")
+                # 记录所有群名称，用于调试
+                for chatroom in chatrooms:
+                    logger.error(f"[{channel_name}] 可用的群：【{chatroom['NickName']}】")
                 return ""
                     
             except Exception as e:
