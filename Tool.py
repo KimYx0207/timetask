@@ -933,12 +933,8 @@ class TimeTaskModel:
                 #获取群聊
                 for chatroom in chatrooms:
                     NickName = chatroom["NickName"]
-                    # 移除所有空白字符和特殊字符后比较
-                    clean_nickname = ''.join(c for c in NickName if not c.isspace() and c.isprintable())
-                    clean_grouptitle = ''.join(c for c in groupTitle if not c.isspace() and c.isprintable())
-                    
-                    # 使用包含关系匹配
-                    if clean_grouptitle in clean_nickname or clean_nickname in clean_grouptitle:
+                    # 使用大小写不敏感的精确匹配
+                    if NickName.lower() == groupTitle.lower():
                         logger.info(f"[{channel_name}] 找到匹配的群：【{NickName}】，群ID：{chatroom['UserName']}")
                         return chatroom["UserName"]  # 返回群ID而不是群名称
                 
