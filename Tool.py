@@ -18,6 +18,7 @@ from channel.chat_message import ChatMessage
 from croniter import croniter
 import threading
 import logging
+from backup_tool import BackupTool
 
 # 获取logger
 logger = logging.getLogger(__name__)
@@ -38,93 +39,145 @@ class ExcelTool(object):
     __history_sheet_name = "历史任务"
     __dir_name = "taskFile"
     
+    def __init__(self):
+        self.backup_tool = BackupTool(self.__dir_name)
+    
     # 新建工作簿
     def create_excel(self, file_name: str = __file_name, sheet_name=__sheet_name, history_sheet_name=__history_sheet_name):
-        # 文件路径
-        workbook_file_path = self.get_file_path(file_name)
+        try:
+            # 文件路径
+            workbook_file_path = self.get_file_path(file_name)
+            workbook_dir = os.path.dirname(workbook_file_path)
 
-        # 创建Excel
-        if not os.path.exists(workbook_file_path):
-            wb = Workbook()
-            column_list_first = ['A', 'B', 'C', 'D', 'L']
-            width_value_first = 20
-            column_list_two = ['E', 'F', 'H', 'J']
-            width_value_two = 40
-            column_list_three = ['G', 'I', 'K']
-            width_value_three = 70
-            width_value_four = 600
-            
-            # 设置日期格式
-            date_format = NamedStyle(name='date_format')
-            date_format.number_format = 'YYYY-MM-DD'
+            # 确保目录存在
+            if not os.path.exists(workbook_dir):
+                os.makedirs(workbook_dir)
+                logger.info(f"创建目录: {workbook_dir}")
 
-            #sheet1
-            ws = wb.create_sheet(sheet_name, 0)
-            # 类型处理
-            for column in ws.columns:
-                #日期格式
-                if column == "D":
-                    for cell in column:
-                        cell.style = date_format
-                #字符串        
-                else:
+            # 如果文件存在，先创建备份
+            if os.path.exists(workbook_file_path):
+                self.backup_tool.create_backup(workbook_file_path)
+
+            # 创建Excel
+            if not os.path.exists(workbook_file_path) or not self.backup_tool.verify_excel_file(workbook_file_path):
+                wb = Workbook()
+                column_list_first = ['A', 'B', 'C', 'D', 'L']
+                width_value_first = 20
+                column_list_two = ['E', 'F', 'H', 'J']
+                width_value_two = 40
+                column_list_three = ['G', 'I', 'K']
+                width_value_three = 70
+                width_value_four = 600
+                
+                # 设置日期格式
+                date_format = NamedStyle(name='date_format')
+                date_format.number_format = 'YYYY-MM-DD'
+
+                #sheet1
+                ws = wb.create_sheet(sheet_name, 0)
+                # 类型处理
+                for column in ws.columns:
+                    #日期格式
+                    if column == "D":
+                        for cell in column:
+                            cell.style = date_format
+                    #字符串        
+                    else:
+                        for cell in column:
+                            cell.number_format = '@'
+                
+                #宽度处理 
+                for column in column_list_first:
+                    ws.column_dimensions[column].width = width_value_first
+                for column in column_list_two:
+                    ws.column_dimensions[column].width = width_value_two
+                for column in column_list_three:
+                    ws.column_dimensions[column].width = width_value_three
+                ws.column_dimensions["M"].width = width_value_four 
+                  
+                #sheet2
+                ws1 = wb.create_sheet(history_sheet_name, 1)
+                # 类型处理 - 设置为字符串
+                for column in ws1.columns:
                     for cell in column:
                         cell.number_format = '@'
-            
-            #宽度处理 
-            for column in column_list_first:
-                ws.column_dimensions[column].width = width_value_first
-            for column in column_list_two:
-                ws.column_dimensions[column].width = width_value_two
-            for column in column_list_three:
-                ws.column_dimensions[column].width = width_value_three
-            ws.column_dimensions["M"].width = width_value_four 
-              
-            #sheet2
-            ws1 = wb.create_sheet(history_sheet_name, 1)
-            # 类型处理 - 设置为字符串
-            for column in ws1.columns:
-                for cell in column:
-                    cell.number_format = '@'
-                    
-            #宽度处理        
-            for column in column_list_first:
-                ws1.column_dimensions[column].width = width_value_first
-            for column in column_list_two:
-                ws1.column_dimensions[column].width = width_value_two
-            ws1.column_dimensions["M"].width = width_value_three     
-                    
-            wb.save(workbook_file_path)
-            logger.info("定时Excel创建成功，文件路径为：{}".format(workbook_file_path))
-            
-        else:
-            wb = load_workbook(workbook_file_path)
-            if not history_sheet_name in wb.sheetnames:
-                wb.create_sheet(history_sheet_name, 1)
+                        
+                #宽度处理        
+                for column in column_list_first:
+                    ws1.column_dimensions[column].width = width_value_first
+                for column in column_list_two:
+                    ws1.column_dimensions[column].width = width_value_two
+                ws1.column_dimensions["M"].width = width_value_three     
+                        
                 wb.save(workbook_file_path)
-                logger.debug(f"创建sheet: {history_sheet_name}")
-            else:
-                logger.debug("timeTask文件已存在, 无需创建")
+                logger.info("定时Excel创建成功，文件路径为：{}".format(workbook_file_path))
                 
-
+            else:
+                wb = load_workbook(workbook_file_path, read_only=True)
+                if not history_sheet_name in wb.sheetnames:
+                    wb.close()
+                    wb = load_workbook(workbook_file_path)
+                    wb.create_sheet(history_sheet_name, 1)
+                    wb.save(workbook_file_path)
+                    logger.debug(f"创建sheet: {history_sheet_name}")
+                else:
+                    wb.close()
+                    logger.debug("timeTask文件已存在, 无需创建")
+                
+        except Exception as e:
+            logger.error(f"创建Excel文件时发生错误: {str(e)}")
+            # 如果创建失败，尝试恢复最新的备份
+            if self.backup_tool.restore_latest_backup(workbook_file_path):
+                logger.info("已恢复到最新的备份文件")
+            raise e
+        
     # 读取内容,返回元组列表
     def readExcel(self, file_name=__file_name, sheet_name=__sheet_name):
-        # 文件路径
-        workbook_file_path = self.get_file_path(file_name)
-        
-        # 文件存在
-        if os.path.exists(workbook_file_path):
-            wb = load_workbook(workbook_file_path)
-            ws = wb[sheet_name]
-            data = list(ws.values)
-            #print(data)
-            if data is None or len(data) == 0:
-                logger.debug("[timeTask] 数据库timeTask任务列表数据为空")
+        try:
+            # 文件路径
+            workbook_file_path = self.get_file_path(file_name)
+            
+            # 文件存在
+            if os.path.exists(workbook_file_path):
+                try:
+                    # 创建备份
+                    self.backup_tool.create_backup(workbook_file_path)
+                    
+                    # 尝试读取文件
+                    wb = load_workbook(workbook_file_path, read_only=True)
+                    ws = wb[sheet_name]
+                    data = list(ws.values)
+                    wb.close()
+                    
+                    if data is None or len(data) == 0:
+                        logger.debug("[timeTask] 数据库timeTask任务列表数据为空")
+                    return data
+                    
+                except Exception as e:
+                    logger.error(f"读取Excel文件时发生错误: {str(e)}")
+                    # 尝试恢复最新的备份
+                    if self.backup_tool.restore_latest_backup(workbook_file_path):
+                        try:
+                            wb = load_workbook(workbook_file_path, read_only=True)
+                            ws = wb[sheet_name]
+                            data = list(ws.values)
+                            wb.close()
+                            logger.info("成功从备份文件恢复数据")
+                            return data
+                        except Exception as backup_err:
+                            logger.error(f"读取恢复的备份文件失败: {str(backup_err)}")
+                    
+                    # 如果恢复失败，创建新文件
+                    logger.info("创建新的Excel文件")
+                    self.create_excel()
+                    return []
+            else:
+                logger.info("timeTask文件不存在, 将创建新文件")
+                self.create_excel()
+                return []
                 
-            return data
-        else:
-            print("timeTask文件不存在, 读取数据为空")
-            self.create_excel()
+        except Exception as e:
+            logger.error(f"读取Excel过程中发生错误: {str(e)}")
             return []
         
     # 将历史任务迁移指历史Sheet
