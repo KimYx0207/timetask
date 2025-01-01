@@ -19,8 +19,7 @@ from croniter import croniter
 import threading
 import logging
 
-# 日志配置
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# 获取logger
 logger = logging.getLogger(__name__)
 
 try:
@@ -409,7 +408,7 @@ class TimeTaskModel:
     #11：isGroup - 0/1，是否群聊； 0=否，1=是
     #12：原始内容 - 原始的消息体
     #13：今天是否被消息 - 每天会在凌晨自动重置
-    def __init__(self, item, msg:ChatMessage, isNeedFormat: bool, isNeedCalculateCron = False):
+    def __init__(self, item, msg:ChatMessage, isNeedFormat: bool, isNeedCalculateCron = True):
         
         self.isNeedCalculateCron = isNeedCalculateCron
         self.taskId = item[0]
@@ -584,7 +583,8 @@ class TimeTaskModel:
         #cron   
         if self.isCron_time():
             current_time = arrow.now().replace(second=0, microsecond=0)
-            return True, current_time.format('HH:mm')
+            current_time_str = current_time.format('HH:mm')
+            return current_time_str in self.cron_today_times, current_time_str
         else:    
             #对比精准到分（忽略秒）
             current_time = arrow.now().replace(second=0, microsecond=0)
@@ -914,8 +914,6 @@ class TimeTaskModel:
         if len(groupTitle) <= 0:
               return ""
               
-        logger.debug(f"[{channel_name}] 开始查找群【{groupTitle}】")
-        
         #itchat
         if channel_name == "wx":
             tempRoomId = ""
@@ -923,28 +921,19 @@ class TimeTaskModel:
             try:
                 #群聊  
                 chatrooms = itchat.get_chatrooms(update=True)  # 添加update=True强制更新群列表
-                logger.debug(f"[{channel_name}] 当前共有 {len(chatrooms)} 个群")
                 
                 #获取群聊
                 for chatroom in chatrooms:
                     #id
                     userName = chatroom["UserName"]
                     NickName = chatroom["NickName"]
-                    logger.debug(f"[{channel_name}] 正在检查群：{NickName}")
                     # 使用精确匹配
                     if NickName == groupTitle:
                         tempRoomId = userName
-                        logger.debug(f"[{channel_name}] 找到匹配的群：{NickName}，ID：{userName}")
                         break
                     
-                if not tempRoomId:
-                    logger.debug(f"[{channel_name}] 未找到群【{groupTitle}】，当前所有群：")
-                    for room in chatrooms:
-                        logger.debug(f"  - {room['NickName']}")
-                        
             except Exception as e:
                 logger.error(f"[{channel_name}] 通过群标题获取群ID时发生错误：{str(e)}")
-                logger.error(f"[{channel_name}] 错误详情：", e)
                 return ""
                 
             return tempRoomId
@@ -954,29 +943,21 @@ class TimeTaskModel:
             try:
                 #数据结构为字典数组
                 rooms = wechatnt.get_rooms()
-                logger.debug(f"[{channel_name}] 当前共有 {len(rooms)} 个群")
                 
                 if len(rooms) > 0:
                     #遍历
                     for item in rooms:
                         roomId = item.get("wxid")
                         nickname = item.get("nickname")
-                        logger.debug(f"[{channel_name}] 正在检查群：{nickname}")
                         # 使用精确匹配
                         if nickname == groupTitle:
                             tempRoomId = roomId
-                            logger.debug(f"[{channel_name}] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
                             
-                if not tempRoomId:
-                    logger.debug(f"[{channel_name}] 未找到群【{groupTitle}】，当前所有群：")
-                    for room in rooms:
-                        logger.debug(f"  - {room.get('nickname')}")
                 return tempRoomId
                         
             except Exception as e:
                 logger.error(f"[{channel_name}] 通过群标题获取群ID时发生错误：{str(e)}")
-                logger.error(f"[{channel_name}] 错误详情：", e)
                 return tempRoomId
 
         elif channel_name == "wework":
@@ -984,30 +965,22 @@ class TimeTaskModel:
             try:
                 # 数据结构为字典数组
                 rooms = wework.get_rooms().get("room_list")
-                logger.debug(f"[{channel_name}] 当前共有 {len(rooms)} 个群")
                 
                 if len(rooms) > 0:
                     # 遍历
                     for item in rooms:
                         roomId = item.get("conversation_id")
                         nickname = item.get("nickname")
-                        logger.debug(f"[{channel_name}] 正在检查群：{nickname}")
                         # 使用精确匹配
                         if nickname == groupTitle:
                             tempRoomId = roomId
-                            logger.debug(f"[{channel_name}] 找到匹配的群：{nickname}，ID：{roomId}")
                             break
-
-                if not tempRoomId:
-                    logger.debug(f"[{channel_name}] 未找到群【{groupTitle}】，当前所有群：")
-                    for room in rooms:
-                        logger.debug(f"  - {room.get('nickname')}")
+                            
                 return tempRoomId
-
+                        
             except Exception as e:
                 logger.error(f"[{channel_name}] 通过群标题获取群ID时发生错误：{str(e)}")
-                logger.error(f"[{channel_name}] 错误详情：", e)
-                return ""
+                return tempRoomId
 
         else:
             logger.error(f"[{channel_name}] 不支持通过群标题获取群ID，当前channel：{channel_name}")
