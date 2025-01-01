@@ -913,35 +913,15 @@ class TimeTaskModel:
         substring_groupTitle = substring_groupTitle.replace("]", "").strip()
         return substring_event, substring_groupTitle
     
-    #通过 群Title 获取群ID
+    #通过 群Title 获取群ID或群名称
     def get_gropID_withGroupTitle(self, groupTitle, channel_name):
-        """通过群标题获取群ID"""
+        """通过群标题获取群ID或群名称"""
         if len(groupTitle) <= 0:
               return ""
               
-        #itchat
+        #itchat - 直接返回群名称
         if channel_name == "wx":
-            tempRoomId = ""
-            #群聊处理       
-            try:
-                #群聊  
-                chatrooms = itchat.get_chatrooms(update=True)  # 添加update=True强制更新群列表
-                
-                #获取群聊
-                for chatroom in chatrooms:
-                    #id
-                    userName = chatroom["UserName"]
-                    NickName = chatroom["NickName"]
-                    # 使用精确匹配
-                    if NickName == groupTitle:
-                        tempRoomId = userName
-                        break
-                    
-            except Exception as e:
-                logger.error(f"[{channel_name}] 通过群标题获取群ID时发生错误：{str(e)}")
-                return ""
-                
-            return tempRoomId
+            return groupTitle
 
         elif channel_name == "ntchat":
             tempRoomId = ""
