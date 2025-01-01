@@ -586,14 +586,22 @@ class TimeTaskModel:
             current_time_str = current_time.format('HH:mm')
             return current_time_str in self.cron_today_times, current_time_str
         else:    
-            #对比时间（允许1分钟的误差）
-            current_time = arrow.now().replace(second=0, microsecond=0)
-            task_time = arrow.get(tempTimeStr, "HH:mm:ss").replace(second=0, microsecond=0)
+            #对比时间（允许前后1分钟的误差）
+            current_time = arrow.now()  # 保留秒数
+            task_time = arrow.get(tempTimeStr, "HH:mm:ss")  # 保留秒数
+            
+            # 将任务时间调整到今天
+            task_time = task_time.replace(year=current_time.year, 
+                                        month=current_time.month, 
+                                        day=current_time.day)
             
             # 计算时间差（分钟）
             time_diff = (current_time - task_time).total_seconds() / 60
-            # 如果时间差在1分钟以内，认为是当前时间
-            is_now = time_diff >= 0 and time_diff <= 1
+            # 如果时间差在前后1分钟以内，认为是当前时间
+            is_now = abs(time_diff) <= 1
+            
+            if self.debug:
+                logger.debug(f"时间比较：当前时间={current_time.format('HH:mm:ss')}，任务时间={task_time.format('HH:mm:ss')}，时间差={time_diff}分钟")
             
             return is_now, current_time.format('HH:mm')
     
