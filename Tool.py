@@ -679,6 +679,11 @@ class TimeTaskModel:
                 print(f"[TimeTask Debug] 任务 {self.taskId} 是具体日期任务，日期{'' if result else '不'}匹配")
                 return result
                 
+            # 直接判断是否包含"每天"
+            if "每天" in item_circle:
+                print(f"[TimeTask Debug] 任务 {self.taskId} 是每天执行的任务")
+                return True
+                
             print(f"[TimeTask Debug] 任务 {self.taskId} 日期格式不匹配任何规则")
             return False
             
@@ -724,17 +729,19 @@ class TimeTaskModel:
             # 如果是cron表达式，直接返回
             if circleStr.startswith("cron["):
                 return circleStr
-                
-            # 处理周期性日期 - 修改这部分
-            if circleStr in ["每天", "每周", "工作日"]:
-                # 对于周期性任务，返回特殊标记而不是具体日期
+            
+            # 处理周期性日期
+            if circleStr == "每天":
+                return "cycle_每天"
+            
+            if circleStr in ["每周", "工作日"]:
                 return f"cycle_{circleStr}"
-                
-            # 处理每周X - 修改这部分
+            
+            # 处理每周X
             if circleStr in ["每周一", "每周二", "每周三", "每周四", "每周五", "每周六","每周日","每周天", 
                            "每星期一", "每星期二","每星期三", "每星期四", "每星期五","每星期六", "每星期日", "每星期天"]:
                 return f"cycle_{circleStr}"
-                
+            
             # 处理中文日期
             if circleStr in ['今天', '明天', '后天']:
                 today = arrow.now('local')
@@ -745,7 +752,7 @@ class TimeTaskModel:
                 elif circleStr == '后天':
                     g_circle = today.shift(days=2).format('YYYY-MM-DD')
                 return g_circle
-                
+            
             # 尝试解析标准日期格式
             if re.match(pattern1, circleStr):
                 # 如果只有日期，添加时间
